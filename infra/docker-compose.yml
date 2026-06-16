@@ -1,0 +1,36 @@
+services:
+  postgres:
+    build:
+      context: ./postgres
+    container_name: reporelay-postgres
+    environment:
+      POSTGRES_USER: reporelay
+      POSTGRES_PASSWORD: reporelay
+      POSTGRES_DB: reporelay
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/01-extensions.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U reporelay -d reporelay"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: reporelay-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  postgres-data:
+  redis-data:
