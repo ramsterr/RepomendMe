@@ -1,5 +1,8 @@
 # RepoRelay — TODO
 
+## For later
+- [ ] make a technical blog 
+
 ## Gonna start here
 
 - [x] Initialize project repository (monorepo structure)
