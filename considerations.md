@@ -23,11 +23,17 @@ this wont be favourable , so consider having an outh , i get it that astrojs wil
 
 TLDR :
 -i wanna use Item based CBF until a threshold of user data/queiries
+
 -once i get the threshold , i would reset it and then switch to  userbased CBF for a while
+
 -i keep the UCBF until i reach the threshold again(since i reset it earlier)
+
 -and look this threshold is dynamic.....sometimes you need a higher treshold to switch CBF mechanism
+
 and sometimes a lower threshold to switch the CBF option
+
 -IMP: i can decide this by using my UI to make it such a way that the user CAN NOT see the next suggestion until he marks "THUMBS UP or THUMBS DOWN" to current recommendation......
+
 study this threshold thing and plan better lol
 
 (down below my raw thinking as i thought about it)
