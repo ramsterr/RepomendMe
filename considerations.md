@@ -56,3 +56,17 @@ similarly for the item based collaborative filtering , do i increase the thresho
 
 keep half of the recommendations userbased and the other half as iterm based
 
+
+
+- ## FEATURE : Fusion
+I'll keep the features minimal in this and one of them would be this.
+
+so , why im adding this feature?
+cuz it already closely alings with the 'recomendation' genre.
+moreover fusion is basically just taking features from multiple users and demo and put it together .
+
+im inherently not doing another different implement genre/touching other stack or features
+
+also keep in mind that these fusions should be in different sandboxes in isolation.
+
+dont wanna fuck up user's choices for giggles and funs with friends lol
