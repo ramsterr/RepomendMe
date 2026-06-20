@@ -25,6 +25,7 @@ from typing import Any
 
 from reporelay_mvp import data
 from reporelay_mvp.candidates import generate_candidates
+from reporelay_mvp.embedding import embed_text
 from reporelay_mvp.features import compute_features
 from reporelay_mvp.github import (
     _auth_client,
@@ -32,7 +33,7 @@ from reporelay_mvp.github import (
     save_repo,
     search_repositories,
 )
-from reporelay_mvp.models import Repo, ScoredRecommendation, ScoredRepo
+from reporelay_mvp.models import Features, Repo, ScoredRecommendation, ScoredRepo
 from reporelay_mvp.rerank import rerank
 from reporelay_mvp.score import score_many
 from reporelay_mvp.settings import get_mvp_settings
@@ -47,8 +48,9 @@ def _build_scored_repo(
     repo: Any,
     score: float,
     cosine_sim: float,
+    features: Features | None = None,
 ) -> ScoredRepo:
-    features = compute_features(source, repo, cosine_sim=cosine_sim)
+    feats = features if features is not None else compute_features(source, repo, cosine_sim=cosine_sim)
     source_topic_set = set(source.topics)
     source_lang = source.language
 
@@ -63,7 +65,7 @@ def _build_scored_repo(
         stars=repo.stars,
         dependencies=repo.dependencies,
         score=round(score, 4),
-        features=features.as_dict(),
+        features=feats.as_dict(),
         shared_topics=sorted(source_topic_set & set(repo.topics)),
         shared_language=bool(source_lang and repo.language and source_lang == repo.language),
     )
@@ -98,13 +100,19 @@ async def recommend(
 
         candidates = await _expand_pool(session, source, seed=seed, tags=tags)
 
-        scored = score_many(source, candidates, seed=seed, tags=tags)
+        filter_emb = None
+        if tags:
+            filter_text = " ".join(tags)
+            logger.info("embedding filter text: %r", filter_text)
+            filter_emb = embed_text(filter_text)
+
+        scored = await score_many(source, candidates, session=session, seed=seed, tags=tags, filter_embedding=filter_emb)
         final = rerank(source, scored, limit=limit, seed=seed)
 
         scored_repos: list[ScoredRepo] = []
-        for repo, sc in final:
+        for repo, sc, features in final:
             cosine_sim = _find_cosine(repo, candidates)
-            scored_repos.append(_build_scored_repo(source, repo, sc, cosine_sim))
+            scored_repos.append(_build_scored_repo(source, repo, sc, cosine_sim, features=features))
 
         return ScoredRecommendation(source_repo=full_name, repos=scored_repos)
     finally:
@@ -198,13 +206,13 @@ async def recommend_random(
 
         candidates = await _expand_pool(session, source, seed=seed)
 
-        scored = score_many(source, candidates, seed=seed)
+        scored = await score_many(source, candidates, session=session, seed=seed)
         final = rerank(source, scored, limit=limit, seed=seed)
 
         scored_repos: list[ScoredRepo] = []
-        for repo, sc in final:
+        for repo, sc, features in final:
             cosine_sim = _find_cosine(repo, candidates)
-            scored_repos.append(_build_scored_repo(source, repo, sc, cosine_sim))
+            scored_repos.append(_build_scored_repo(source, repo, sc, cosine_sim, features=features))
 
         return ScoredRecommendation(source_repo=source.full_name, repos=scored_repos)
     finally:

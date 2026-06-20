@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import json
+
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -202,6 +204,20 @@ async def get_repo_by_id(session: AsyncSession, repo_id: int) -> Repo | None:
     return _row_to_repo(row) if row else None
 
 
+def _parse_embedding(raw: Any) -> list[float] | None:
+    """Parse a pgvector column value returned as a JSON-array string by psycopg."""
+    if raw is None:
+        return None
+    if isinstance(raw, list):
+        return [float(x) for x in raw]
+    if isinstance(raw, str):
+        try:
+            return [float(x) for x in json.loads(raw)]
+        except (json.JSONDecodeError, ValueError):
+            return None
+    return None
+
+
 async def get_embedding(session: AsyncSession, repo_id: int) -> list[float] | None:
     rows = await session.execute(
         text("SELECT embedding FROM mvp_repos WHERE id = :id"),
@@ -210,7 +226,26 @@ async def get_embedding(session: AsyncSession, repo_id: int) -> list[float] | No
     row = rows.fetchone()
     if not row or row[0] is None:
         return None
-    return list(row[0])
+    return _parse_embedding(row[0])
+
+
+async def get_embeddings_batch(session: AsyncSession, repo_ids: list[int]) -> dict[int, list[float]]:
+    rows = await session.execute(
+        text(
+            """
+            SELECT id, embedding
+            FROM mvp_repos
+            WHERE id = ANY(:ids) AND embedding IS NOT NULL
+            """
+        ),
+        {"ids": repo_ids},
+    )
+    result: dict[int, list[float]] = {}
+    for row in rows:
+        parsed = _parse_embedding(row[1])
+        if parsed is not None:
+            result[int(row[0])] = parsed
+    return result
 
 
 async def count_repos(session: AsyncSession) -> int:

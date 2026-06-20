@@ -22,13 +22,14 @@ MAX_STARS = 500_000  # for popularity log scale
 EPS = 1e-9
 
 
-def compute_features(source: Repo, candidate: Repo, *, cosine_sim: float) -> Features:
+def compute_features(source: Repo, candidate: Repo, *, cosine_sim: float, filter_cosine_sim: float = 0.0) -> Features:
     return Features(
         language_match=_language_match(source.language, candidate.language),
         topic_overlap=_jaccard(source.topics, candidate.topics),
         cosine_sim=_clamp(cosine_sim),
         dep_overlap=_jaccard(source.dependencies, candidate.dependencies),
         popularity_sim=_popularity_sim(source.stars, candidate.stars),
+        filter_cosine_sim=_clamp(filter_cosine_sim),
     )
 
 

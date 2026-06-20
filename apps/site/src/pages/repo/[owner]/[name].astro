@@ -37,6 +37,7 @@ function matchLabel(features: Record<string, number>): string {
   if (features.language_match >= 1) parts.push("same language");
   if (features.topic_overlap > 0.3) parts.push("shared topics");
   if (features.cosine_sim > 0.6) parts.push("similar README");
+  if (features.filter_cosine_sim > 0.5) parts.push("semantic match");
   if (features.dep_overlap > 0.3) parts.push("shared deps");
   if (parts.length === 0) return "loose match";
   return parts.slice(0, 2).join(" + ");

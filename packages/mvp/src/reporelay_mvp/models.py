@@ -59,6 +59,7 @@ class Features:
     cosine_sim: float
     dep_overlap: float
     popularity_sim: float
+    filter_cosine_sim: float = 0.0
 
     def as_dict(self) -> dict[str, float]:
         return {
@@ -67,4 +68,5 @@ class Features:
             "cosine_sim": self.cosine_sim,
             "dep_overlap": self.dep_overlap,
             "popularity_sim": self.popularity_sim,
+            "filter_cosine_sim": self.filter_cosine_sim,
         }

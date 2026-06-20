@@ -23,21 +23,21 @@ from reporelay_mvp.models import Repo
 
 def rerank(
     source: Repo,
-    scored: list[tuple[Repo, float]],
+    scored: list[tuple[Repo, float, Any]],
     *,
     limit: int = 10,
     seed: int | None = None,
-) -> list[tuple[Repo, float]]:
+) -> list[tuple[Repo, float, Any]]:
     source_owner = source.owner.lower()
     seen_owners: set[str] = set()
-    out: list[tuple[Repo, float]] = []
+    out: list[tuple[Repo, float, Any]] = []
 
     if seed is not None:
         working = list(scored)
     else:
         working = sorted(scored, key=lambda pair: pair[1], reverse=True)
 
-    for repo, score in working:
+    for repo, score, meta in working:
         if repo.id == source.id:
             continue
 
@@ -49,7 +49,7 @@ def rerank(
             continue
 
         seen_owners.add(owner)
-        out.append((repo, score))
+        out.append((repo, score, meta))
 
         if len(out) >= limit:
             break

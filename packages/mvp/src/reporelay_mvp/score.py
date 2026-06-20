@@ -1,24 +1,35 @@
 """
 Stage 4 of the MVP pipeline: scoring.
 
-A fixed weighted sum of the five features. No ML, no blender, no
+A fixed weighted sum of the features. No ML, no blender, no
 lifecycle stages. The weights are documented in WEIGHTS; tweak them
 in one place.
 
-When `tags` are provided, topic_overlap gets a 2x boost and
-language_match is reduced, so the results are driven by tag matching.
+When `tags` are provided, a new filter_cosine_sim feature is added:
+the filter text ("machine learning free courses") is embedded at query
+time and compared against every candidate's README embedding. This
+gives semantic matching — repos about ML education score high even
+if they don't have that exact tag. The feature captures the 35%
+weight, with topic_overlap at 25% as the secondary signal.
 
-When `seed` is not None, each weight is jittered by ±10% and the
+When `seed` is not None, each weight is jittered by +/- 10% and the
 popularity_sim weight is boosted by 3x (to surface "cooler" repos).
 The jitter is deterministic — same seed = same weights.
 """
 
 from __future__ import annotations
 
+import logging
 import random
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from reporelay_mvp import data
+from reporelay_mvp.embedding import cosine
 from reporelay_mvp.features import compute_features
 from reporelay_mvp.models import Features, Repo
+
+logger = logging.getLogger(__name__)
 
 WEIGHTS: dict[str, float] = {
     "language_match": 0.30,
@@ -29,9 +40,10 @@ WEIGHTS: dict[str, float] = {
 }
 
 TAG_WEIGHTS: dict[str, float] = {
-    "language_match": 0.15,
-    "topic_overlap": 0.50,
-    "cosine_sim": 0.15,
+    "language_match": 0.10,
+    "topic_overlap": 0.25,
+    "cosine_sim": 0.10,
+    "filter_cosine_sim": 0.35,
     "dep_overlap": 0.10,
     "popularity_sim": 0.10,
 }
@@ -46,12 +58,13 @@ def _get_weights(seed: int | None, *, use_tags: bool = False) -> dict[str, float
     for name, v in base.items():
         jitter = 1.0 + rng.uniform(-0.10, 0.10)
         w[name] = v * jitter
-    # boost popularity for "cool repos" effect when exploring
     w["popularity_sim"] *= 3.0
     return w
 
 
-def score_repo(features: Features, *, seed: int | None = None, use_tags: bool = False) -> float:
+def score_repo(
+    features: Features, *, seed: int | None = None, use_tags: bool = False
+) -> float:
     weights = _get_weights(seed, use_tags=use_tags)
     total: float = 0.0
     for name, weight in weights.items():
@@ -59,29 +72,46 @@ def score_repo(features: Features, *, seed: int | None = None, use_tags: bool = 
     return total
 
 
-def score_many(
+async def score_many(
     source: Repo,
     candidates: list[tuple[Repo, float]],
     *,
+    session: AsyncSession,
     seed: int | None = None,
     tags: list[str] | None = None,
-) -> list[tuple[Repo, float]]:
+    filter_embedding: list[float] | None = None,
+) -> list[tuple[Repo, float, Features]]:
     """
-    Score all candidates against the source repo. Each candidate is
-    paired with a cosine similarity (from the ANN pool) or a neutral
-    0.5 (from the SQL-only pool).
+    Score all candidates against the source repo.
 
-    When `tags` are provided, topic_overlap gets a 2x weight boost so
-    results are driven by tag alignment. When `seed` is set, noise is
-    added to each score. Both are deterministic — same inputs = same scores.
+    When `filter_embedding` is provided (embedding of the tag filter
+    text), the batch fetch of candidate embeddings is done and
+    filter_cosine_sim is computed per candidate. This gives semantic
+    tag filtering — the tag text becomes a vector query.
+
+    Returns (repo, score, features) tuples for downstream use.
     """
     use_tags = bool(tags)
     rng = random.Random(seed) if seed is not None else None
-    scored: list[tuple[Repo, float]] = []
+
+    embeddings: dict[int, list[float]] = {}
+    if filter_embedding:
+        candidate_ids = [c.id for c, _ in candidates]
+        if candidate_ids:
+            embeddings = await data.get_embeddings_batch(session, candidate_ids)
+        if not embeddings:
+            logger.info("no candidate embeddings for semantic tag filter — falling back to topic overlap")
+
+    scored: list[tuple[Repo, float, Features]] = []
     for cand, cosine_sim in candidates:
-        features = compute_features(source, cand, cosine_sim=cosine_sim)
+        fc = 0.0
+        if filter_embedding and cand.id in embeddings:
+            fc = cosine(filter_embedding, embeddings[cand.id])
+        features = compute_features(
+            source, cand, cosine_sim=cosine_sim, filter_cosine_sim=fc
+        )
         s = score_repo(features, seed=seed, use_tags=use_tags)
         if rng is not None:
             s += rng.uniform(-0.08, 0.08)
-        scored.append((cand, s))
+        scored.append((cand, s, features))
     return scored

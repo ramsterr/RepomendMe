@@ -47,3 +47,15 @@ def embed_text(text_value: str) -> list[float]:
         normalize_embeddings=True,
     )
     return vector.tolist()
+
+
+def cosine(a: list[float], b: list[float]) -> float:
+    """Cosine similarity between two L2-normalized vectors. Returns 0 for zero vectors."""
+    if len(a) != len(b) or not a or not b:
+        return 0.0
+    dot = sum(x * y for x, y in zip(a, b, strict=True))
+    norm_a = (sum(x * x for x in a)) ** 0.5
+    norm_b = (sum(x * x for x in b)) ** 0.5
+    if norm_a < 1e-9 or norm_b < 1e-9:
+        return 0.0
+    return dot / (norm_a * norm_b)
