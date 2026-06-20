@@ -23,6 +23,7 @@ from rich.logging import RichHandler
 
 from reporelay_mvp import recommend as recommend_func
 from reporelay_mvp import recommend_random as explore_func
+from reporelay_mvp.embed_pass import embed_top
 from reporelay_mvp.github import save_repo
 from reporelay_mvp.seed import DEFAULT_LANGUAGES, seed_corpus
 from reporelay_mvp.settings import get_mvp_settings
@@ -170,6 +171,37 @@ def seed(
     console.print(f"[bold green]done — {result['grand_total']} repos indexed[/bold green]")
     for lang, count in result["totals"].items():
         console.print(f"  {lang}: {count}")
+
+
+@app.command()
+def embed(
+    limit: int = typer.Option(1000, help="how many top-by-stars repos to embed"),
+    concurrency: int = typer.Option(4, help="parallel readme fetches"),
+) -> None:
+    """
+    Compute and store README embeddings for repos indexed from
+    search but not yet embedded. Unlocks pgvector ANN.
+
+    Each repo = 1 readme fetch + 1 embed call. Paced to stay
+    under the 5,000 req/hr REST limit. The model downloads on
+    first run (~11s) and stays in memory.
+    """
+    _configure_logging()
+    console.print(
+        f"[bold]embedding top {limit} repos (concurrency={concurrency})[/bold]"
+    )
+    console.print(
+        "[dim]first run downloads the embedding model (~80MB, ~11s); subsequent runs are fast[/dim]"
+    )
+
+    result = asyncio.run(embed_top(limit=limit, concurrency=concurrency))
+    if result["attempted"] == 0:
+        console.print("[yellow]no repos need embedding[/yellow]")
+        return
+    console.print(
+        f"[bold green]done — {result['succeeded']}/{result['attempted']} embedded, "
+        f"{result['failed']} failed[/bold green]"
+    )
 
 
 def _print_results(rec: Any) -> None:
