@@ -5,17 +5,16 @@ import Base from "../layouts/Base.astro";
 <Base>
   <h1>surprise me</h1>
   <p class="subtitle">
-    a random repo from the database + its recommendations
+    explore repos by topic — pick one, see the top projects, get recommendations
   </p>
 
-  <div class="actions">
-    <button class="btn" id="roll-btn">surprise me</button>
-    <button class="btn btn-outline" id="again-btn">another one</button>
+  <div class="actions" style="margin-bottom: 1.5rem;">
+    <button class="btn btn-outline" id="roll-btn">random repo</button>
     <a href="/" class="btn btn-outline" style="display:inline-block;">back to search</a>
   </div>
 
-  <div id="explore-result">
-    <div class="loading">click "surprise me" to start</div>
+  <div id="explore-container">
+    <div class="loading">loading topics…</div>
   </div>
 </Base>
 
@@ -27,92 +26,191 @@ import Base from "../layouts/Base.astro";
     return String(n);
   }
 
-  function scoreColor(score) {
-    if (score >= 0.7) return "high";
-    if (score >= 0.4) return "medium";
-    return "low";
-  }
-
-  function matchLabel(features) {
-    var parts = [];
-    if (features.language_match >= 1) parts.push("same language");
-    if (features.topic_overlap > 0.3) parts.push("shared topics");
-    if (features.cosine_sim > 0.6) parts.push("similar README");
-    if (features.dep_overlap > 0.3) parts.push("shared deps");
-    if (parts.length === 0) return "loose match";
-    return parts.slice(0, 2).join(" + ");
-  }
-
-  function renderCard(r) {
-    var shared = r.shared_topics || [];
-    var sharedLang = r.shared_language;
-    var lang = r.language || "";
-    var otherTopics = (r.topics || []).filter(function (t) {
-      return shared.indexOf(t) === -1;
-    }).slice(0, 3);
-    var html =
-      '<div class="card">' +
-      '<div class="card-top">' +
-      '<a class="card-repo" href="https://github.com/' + r.full_name + '" target="_blank" rel="noopener">' +
-      r.full_name +
-      "</a>" +
-      '<span class="stars">' + fmt(r.stars) + " ★</span>" +
-      "</div>" +
-      '<div class="card-desc">' + (r.description || "(no description)") + "</div>" +
-      '<div class="card-meta">' +
-      '<span class="score-dot ' + scoreColor(r.score) + '"></span>' +
-      '<span class="badge badge-lang" style="font-size:0.65rem;">' + matchLabel(r.features) + "</span>";
-    if (sharedLang && lang) {
-      html += '<span class="badge badge-lang" style="background:#e8f5e9;border-color:#c8e6c9;color:#2e7d32;">' + lang + "</span>";
+  function renderRepos(repos) {
+    if (!repos || repos.length === 0) return '<div class="loading">no repos found</div>';
+    var html = '<div class="topic-repos">';
+    for (var i = 0; i < repos.length; i++) {
+      var r = repos[i];
+      html +=
+        '<a class="repo-chip" href="/repo/' + r.full_name + '">' +
+        '<strong>' + r.full_name + '</strong>' +
+        ' <span class="stars">' + fmt(r.stars) + ' ★</span>' +
+        (r.language ? ' <span class="badge badge-lang">' + r.language + '</span>' : '') +
+        '</a>';
     }
-    if (shared.length > 0) {
-      html += '<span class="badge" style="background:#e3f2fd;border-color:#bbdefb;color:#1565c0;">' + shared.join(", ") + "</span>";
-    }
-    if (lang && !sharedLang) {
-      html += '<span class="badge badge-lang">' + lang + "</span>";
-    }
-    for (var i = 0; i < otherTopics.length; i++) {
-      html += '<span class="pill">' + otherTopics[i] + "</span>";
-    }
-    html += "</div></div>";
+    html += '</div>';
     return html;
+  }
+
+  function loadTopics() {
+    var el = document.getElementById("explore-container");
+    if (!el) return;
+    el.innerHTML = '<div class="loading">loading topics…</div>';
+
+    fetch(API + "/topics?limit=40")
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        var topics = (data.topics || []).filter(function (t) {
+          // skip overly broad or spammy tags
+          var skip = new Set([
+            "hacktoberfest", "hackertoberfest", "good-first-issue",
+            "hacktoberfest2022", "hacktoberfest2023", "hacktoberfest2024",
+            "hacktoberfest-accepted", "beginner-friendly", "first-timers-only",
+            "up-for-grabs", "easy", "help-wanted", "hackoctoberfest",
+            "hacktoberfest2020", "hacktoberfest2021",
+          ]);
+          return !skip.has(t.topic) && t.topic.length < 40;
+        }).slice(0, 30);
+
+        var html = '<div class="topic-grid">';
+        for (var i = 0; i < topics.length; i++) {
+          var t = topics[i];
+          html +=
+            '<button class="topic-card" data-topic="' + t.topic + '">' +
+            '<span class="topic-name">' + t.topic + '</span>' +
+            '<span class="topic-count">' + fmt(t.count) + ' repos</span>' +
+            '</button>';
+        }
+        html += '</div><div id="topic-detail"></div>';
+        el.innerHTML = html;
+
+        var cards = el.querySelectorAll(".topic-card");
+        for (var j = 0; j < cards.length; j++) {
+          cards[j].addEventListener("click", function () {
+            var topic = this.getAttribute("data-topic");
+            var detail = document.getElementById("topic-detail");
+            if (!detail) return;
+            detail.innerHTML = '<div class="loading">loading ' + topic + '…</div>';
+            detail.scrollIntoView({ behavior: "smooth" });
+
+            // mark active card
+            var allCards = el.querySelectorAll(".topic-card");
+            for (var k = 0; k < allCards.length; k++) {
+              allCards[k].classList.remove("active");
+            }
+            this.classList.add("active");
+
+            fetch(API + "/popular?topic=" + encodeURIComponent(topic) + "&limit=10")
+              .then(function (res) { return res.json(); })
+              .then(function (data) {
+                var titleHtml =
+                  '<p class="section-label" style="margin-top: 1rem;">' +
+                  'popular <strong>' + topic + '</strong> repos &nbsp;' +
+                  '<a href="/repo/' + encodeURIComponent(data.repos[0]?.full_name || '') + '" ' +
+                  'class="btn btn-outline" style="display:inline-block;font-size:0.75rem;">' +
+                  'recommend from top</a>' +
+                  '</p>';
+                detail.innerHTML = titleHtml + renderRepos(data.repos);
+              })
+              .catch(function () {
+                detail.innerHTML = '<div class="error">failed to load repos</div>';
+              });
+          });
+        }
+      })
+      .catch(function () {
+        el.innerHTML = '<div class="error">failed to load topics — make sure the API is running on port 8001</div>';
+      });
   }
 
   function roll() {
     var seed = Math.floor(Math.random() * 99999);
-    load(seed);
+    window.location.href = "/repo/" + "?explore&seed=" + seed;
   }
 
-  function load(seed) {
-    var el = document.getElementById("explore-result");
-    if (!el) return;
-    el.innerHTML = '<div class="loading">grabbing…</div>';
-    fetch(API + "/explore?seed=" + seed + "&limit=12")
-      .then(function (res) {
-        if (!res.ok) throw new Error("API error " + res.status);
-        return res.json();
-      })
+  function exploreRandom() {
+    var seed = Math.floor(Math.random() * 99999);
+    fetch(API + "/explore?seed=" + seed + "&limit=1")
+      .then(function (res) { return res.json(); })
       .then(function (data) {
-        var html =
-          '<p class="section-label" style="margin-top:1.5rem">' +
-          "because you looked at <strong>" + data.source_repo + "</strong>" +
-          "</p>";
-        for (var i = 0; i < data.repos.length; i++) {
-          html += renderCard(data.repos[i]);
-        }
-        el.innerHTML = html;
+        window.location.href = "/repo/" + data.source_repo;
       })
-      .catch(function (e) {
-        el.innerHTML = '<div class="error">' + e.message + "<br><small>make sure the API is running on port 8001</small></div>";
-      });
+      .catch(function () {});
   }
 
-  document.getElementById("roll-btn")?.addEventListener("click", roll);
-  document.getElementById("again-btn")?.addEventListener("click", roll);
+  document.getElementById("roll-btn")?.addEventListener("click", exploreRandom);
 
-  var params = new URLSearchParams(window.location.search);
-  var initialSeed = params.get("seed");
-  if (initialSeed) {
-    load(parseInt(initialSeed));
-  }
+  loadTopics();
 </script>
+
+<style is:inline>
+  .topic-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 0.6rem;
+  }
+
+  .topic-card {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+    padding: 0.7rem 0.9rem;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+  }
+
+  .topic-card:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: var(--accent, #58a6ff);
+  }
+
+  .topic-card.active {
+    background: rgba(88, 166, 255, 0.12);
+    border-color: var(--accent, #58a6ff);
+  }
+
+  .topic-name {
+    font-weight: 600;
+    font-size: 0.85rem;
+    color: var(--accent, #58a6ff);
+  }
+
+  .topic-count {
+    font-size: 0.7rem;
+    opacity: 0.5;
+  }
+
+  .topic-repos {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .repo-chip {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.7rem;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+    border-radius: 5px;
+    text-decoration: none;
+    color: inherit;
+    font-size: 0.85rem;
+    transition: background 0.1s;
+  }
+
+  .repo-chip:hover {
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .repo-chip strong {
+    color: var(--text, #e6edf3);
+  }
+
+  .badge-lang {
+    font-size: 0.65rem;
+    padding: 0.1rem 0.4rem;
+    background: rgba(88, 166, 255, 0.15);
+    border: 1px solid rgba(88, 166, 255, 0.25);
+    border-radius: 3px;
+    color: var(--accent, #58a6ff);
+  }
+</style>

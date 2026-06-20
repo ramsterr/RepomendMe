@@ -6,6 +6,7 @@ Endpoints:
   GET  /recommend?repo=...    ranked recommendations with features
   GET  /explore?seed=...      surprise me — random repo + its recs
   GET  /popular?limit=...     top repos by stars — for the homepage
+  GET  /topics?limit=...      top topics by DB frequency — for explore page
 """
 
 from __future__ import annotations
@@ -83,21 +84,36 @@ class PopularResponse(BaseModel):
 @app.get("/popular", response_model=PopularResponse)
 async def popular(
     limit: int = Query(8, ge=1, le=50),
+    topic: str | None = Query(None, description="Filter repos by topic"),
 ) -> PopularResponse:
-    """Top repos by stars — used by the homepage examples list."""
+    """Top repos by stars — used by the homepage examples list and explore page."""
     session = await mvp_data.get_session()
     try:
-        rows = await session.execute(
-            text(
-                """
-                SELECT id, full_name, description, language, stars
-                FROM mvp_repos
-                ORDER BY stars DESC
-                LIMIT :limit
-                """
-            ),
-            {"limit": limit},
-        )
+        if topic:
+            rows = await session.execute(
+                text(
+                    """
+                    SELECT id, full_name, description, language, stars
+                    FROM mvp_repos
+                    WHERE :topic = ANY(topics)
+                    ORDER BY stars DESC
+                    LIMIT :limit
+                    """
+                ),
+                {"topic": topic, "limit": limit},
+            )
+        else:
+            rows = await session.execute(
+                text(
+                    """
+                    SELECT id, full_name, description, language, stars
+                    FROM mvp_repos
+                    ORDER BY stars DESC
+                    LIMIT :limit
+                    """
+                ),
+                {"limit": limit},
+            )
         repos = [
             PopularRepo(
                 id=r.id,
@@ -111,6 +127,40 @@ async def popular(
     finally:
         await session.close()
     return PopularResponse(repos=repos)
+
+
+class TopicInfo(BaseModel):
+    topic: str
+    count: int
+
+
+class TopicsResponse(BaseModel):
+    topics: list[TopicInfo]
+
+
+@app.get("/topics", response_model=TopicsResponse)
+async def topics(
+    limit: int = Query(40, ge=1, le=200),
+) -> TopicsResponse:
+    """Top topics by DB frequency — used by the explore page."""
+    session = await mvp_data.get_session()
+    try:
+        rows = await session.execute(
+            text(
+                """
+                SELECT unnest(topics) AS topic, COUNT(*) AS cnt
+                FROM mvp_repos
+                GROUP BY topic
+                ORDER BY cnt DESC
+                LIMIT :limit
+                """
+            ),
+            {"limit": limit},
+        )
+        result = [TopicInfo(topic=r.topic, count=r.cnt) for r in rows if r.topic]
+    finally:
+        await session.close()
+    return TopicsResponse(topics=result)
 
 
 @app.get("/recommend", response_model=RecommendResponse)
