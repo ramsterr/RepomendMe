@@ -4,6 +4,8 @@ A dead-simple GitHub repo recommender. Give it a repo, get back repos you might 
 
 **This branch is the simplest version that works end-to-end. The main branch has the full engine (4 strategies, blender, user profiles, etc).**
 
+[→ Full architecture doc (how each stage works, the database schema, what the embedding model does)](ARCHITECTURE.md)
+
 ## How it works
 
 Five steps, each one a single file:
