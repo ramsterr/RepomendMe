@@ -1,0 +1,111 @@
+---
+import Base from "../../../layouts/Base.astro";
+import {
+  fetchRecommendations,
+  type RecommendResponse,
+} from "../../../lib/api";
+
+const { owner, name } = Astro.params;
+const repo = `${owner}/${name}`;
+
+let data: RecommendResponse | null = null;
+let error: string | null = null;
+
+try {
+  data = await fetchRecommendations(repo, 12);
+} catch (e) {
+  error = e instanceof Error ? e.message : "failed to load";
+}
+---
+
+<Base>
+  <h1>{repo}</h1>
+  <p class="subtitle">
+    <a href="/" style="color: var(--accent-dim);">&larr; back</a>
+  </p>
+
+  {
+    error ? (
+      <div class="error">{error}</div>
+    ) : (
+      <>
+        <p class="section-label">
+          {data?.repos.length ?? 0} recommendations
+        </p>
+
+        <div class="actions">
+          <button class="btn btn-outline" onclick="reroll()">
+            rerun with new seed
+          </button>
+          <a href={`/repo/${repo}?seed=${Date.now()}`} class="btn btn-outline" style="display:inline-block">
+            different results
+          </a>
+        </div>
+
+        <div id="results">
+          {data?.repos.map((r, i) => (
+            <div class="card">
+              <div class="card-top">
+                <span class="card-repo">{r.full_name}</span>
+                <span class="stars">{r.stars.toLocaleString()} ★</span>
+              </div>
+              <div class="card-desc">
+                {r.description || "(no description)"}
+              </div>
+              <div class="card-meta">
+                {r.language && (
+                  <span class="badge badge-lang">{r.language}</span>
+                )}
+                {r.topics.slice(0, 4).map((t) => (
+                  <span class="pill">{t}</span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </>
+    )
+  }
+</Base>
+
+<script is:inline>
+  const API = "http://localhost:8001";
+
+  function reroll() {
+    const seed = Math.floor(Math.random() * 99999);
+    window.location.href = `${window.location.pathname}?seed=${seed}`;
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const seed = params.get("seed");
+  if (seed) {
+    const repo = window.location.pathname.replace("/repo/", "");
+    const results = document.getElementById("results");
+    if (results) {
+      results.innerHTML = '<div class="loading">fetching fresh…</div>';
+      fetch(`${API}/recommend?repo=${repo}&limit=12&seed=${seed}`)
+        .then((res) => res.json())
+        .then((data) => {
+          results.innerHTML = data.repos
+            .map(
+              (r) => `
+            <div class="card">
+              <div class="card-top">
+                <span class="card-repo">${r.full_name}</span>
+                <span class="stars">${r.stars.toLocaleString()} ★</span>
+              </div>
+              <div class="card-desc">${r.description || "(no description)"}</div>
+              <div class="card-meta">
+                ${r.language ? `<span class="badge badge-lang">${r.language}</span>` : ""}
+                ${r.topics.slice(0, 4).map((t) => `<span class="pill">${t}</span>`).join("")}
+              </div>
+            </div>`
+            )
+            .join("");
+        })
+        .catch((e) => {
+          results.innerHTML = `<div class="error">${e.message}</div>`;
+        });
+    }
+  }
+</script>

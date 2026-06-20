@@ -1,0 +1,25 @@
+---
+import "../styles/global.css";
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>RepoRelay — find repos worth your time</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  </head>
+  <body>
+    <main>
+      <nav>
+        <a href="/" class="logo">RepoRelay</a>
+        <div class="links">
+          <a href="/" class:list={[Astro.url.pathname === "/" ? "active" : ""]}>home</a>
+          <a href="/explore" class:list={[Astro.url.pathname === "/explore" ? "active" : ""]}>explore</a>
+        </div>
+      </nav>
+      <slot />
+    </main>
+  </body>
+</html>

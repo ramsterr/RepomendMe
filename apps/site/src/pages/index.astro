@@ -1,0 +1,50 @@
+---
+import Base from "../layouts/Base.astro";
+
+const examples = [
+  "fastapi/fastapi",
+  "django/django",
+  "pallets/flask",
+  "psf/requests",
+  "facebook/react",
+  "vuejs/core",
+  "angular/angular",
+  "nestjs/nest",
+];
+---
+
+<Base>
+  <h1>find repos worth your time</h1>
+  <p class="subtitle">
+    built with a 5-stage recommender — pure Postgres + pgvector, no ML training
+  </p>
+
+  <form class="search-bar" onsubmit="go(event)">
+    <input
+      type="text"
+      id="repo-input"
+      placeholder="owner/name — e.g. fastapi/fastapi"
+      autofocus
+    />
+    <button type="submit">search</button>
+  </form>
+
+  <p class="section-label">try one of these</p>
+  <div class="example-repos">
+    {
+      examples.map((r) => (
+        <a href={`/repo/${r}`}>{r}</a>
+      ))
+    }
+  </div>
+</Base>
+
+<script is:inline>
+  function go(e) {
+    e.preventDefault();
+    var input = document.getElementById("repo-input");
+    var val = input.value.trim();
+    if (!val || !val.includes("/")) return;
+    window.location.href = "/repo/" + val;
+  }
+</script>

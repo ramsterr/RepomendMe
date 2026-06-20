@@ -5,6 +5,7 @@ default:
 
 sync:
     uv sync
+    cd apps/site && pnpm install
 
 up:
     docker compose -f infra/docker-compose.yml up -d postgres
@@ -21,6 +22,14 @@ psql:
 api:
     uv run --package reporelay-mvp-api uvicorn reporelay_mvp_api.main:app --reload --port 8001
 
+site:
+    cd apps/site && pnpm dev
+
+dev:
+    uv run --package reporelay-mvp-api uvicorn reporelay_mvp_api.main:app --reload --port 8001 &
+    sleep 2
+    cd apps/site && pnpm dev
+
 migrate:
     uv run --package reporelay-mvp alembic -c packages/mvp/alembic.ini upgrade head
 
@@ -32,6 +41,7 @@ mvp *ARGS:
 
 lint:
     uv run ruff check .
+    cd apps/site && npx astro check 2>/dev/null || true
 
 fmt:
     uv run ruff format .
@@ -46,4 +56,4 @@ test:
 check: lint typecheck test
 
 clean:
-    rm -rf .venv node_modules **/__pycache__ **/dist **/build
+    rm -rf .venv node_modules **/__pycache__ **/dist **/build apps/site/node_modules apps/site/.astro apps/site/dist

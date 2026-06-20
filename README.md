@@ -20,7 +20,7 @@ Five steps, each one a single file:
 
 ## Getting Started (step by step)
 
-You need three things on your machine: **Docker**, **Python 3.12**, and **uv** (pip install uv).
+You need three things on your machine: **Docker** (or **Homebrew** for Mac), **Python 3.12**, and **uv** (pip install uv).
 
 ### Step 1 — Get a GitHub token
 
@@ -35,8 +35,24 @@ That's where the repo data comes from. When you run `just mvp save`, it calls Gi
 
 ### Step 2 — Start Postgres
 
+**Option A: Docker (recommended, works everywhere)**
+
 ```bash
 docker compose -f infra/docker-compose.yml up -d postgres
+```
+
+**Option B: Homebrew (Mac, no Docker)**
+
+```bash
+brew install pgvector
+pg_ctl -D /opt/homebrew/var/postgresql@16 start
+createdb reporelay
+```
+
+Then update `.env` to point to your local Postgres:
+
+```bash
+echo 'DATABASE_URL=postgresql+psycopg://YOUR_USER@localhost:5432/reporelay' >> .env
 ```
 
 This starts a Postgres 16 container with the pgvector extension. One container, that's it.
@@ -95,6 +111,18 @@ recommendations for fastapi/fastapi
 just api                                         # starts on port 8001
 curl "localhost:8001/recommend?repo=django/django&limit=5"
 ```
+
+### Optional — Run the web UI
+
+```bash
+just dev                                         # starts API (8001) + Astro site (4321)
+# Opens http://localhost:4321 in your browser
+```
+
+The site has three pages:
+- `/` — search box + "try one of these" examples
+- `/repo/owner/name` — card-style recommendations, "rerun with new seed" button
+- `/explore` — "surprise me" picks a random repo and shows its recs
 
 ---
 

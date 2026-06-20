@@ -1,0 +1,74 @@
+---
+import Base from "../layouts/Base.astro";
+
+const seed = Math.floor(Math.random() * 99999);
+---
+
+<Base>
+  <h1>surprise me</h1>
+  <p class="subtitle">
+    a random repo from the database + its recommendations
+  </p>
+
+  <div class="actions">
+    <button class="btn" onclick="roll()">surprise me</button>
+    <button class="btn btn-outline" onclick="rollAgain()">another one</button>
+  </div>
+
+  <div id="explore-result">
+    <div class="loading">click "surprise me" to start</div>
+  </div>
+</Base>
+
+<script is:inline>
+  const API = "http://localhost:8001";
+
+  function roll() {
+    const seed = Math.floor(Math.random() * 99999);
+    load(seed);
+  }
+
+  function rollAgain() {
+    roll();
+  }
+
+  function load(seed) {
+    const el = document.getElementById("explore-result");
+    if (!el) return;
+    el.innerHTML = '<div class="loading">grabbing…</div>';
+    fetch(`${API}/explore?seed=${seed}&limit=12`)
+      .then((res) => res.json())
+      .then((data) => {
+        el.innerHTML = `
+          <p class="section-label" style="margin-top:1.5rem">
+            because you looked at <strong>${data.source_repo}</strong>
+          </p>
+          ${data.repos
+            .map(
+              (r) => `
+            <div class="card">
+              <div class="card-top">
+                <span class="card-repo">${r.full_name}</span>
+                <span class="stars">${r.stars.toLocaleString()} ★</span>
+              </div>
+              <div class="card-desc">${r.description || "(no description)"}</div>
+              <div class="card-meta">
+                ${r.language ? `<span class="badge badge-lang">${r.language}</span>` : ""}
+                ${r.topics.slice(0, 4).map((t) => `<span class="pill">${t}</span>`).join("")}
+              </div>
+            </div>`
+            )
+            .join("")}
+        `;
+      })
+      .catch((e) => {
+        el.innerHTML = `<div class="error">${e.message}</div>`;
+      });
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const initialSeed = params.get("seed");
+  if (initialSeed) {
+    load(parseInt(initialSeed));
+  }
+</script>

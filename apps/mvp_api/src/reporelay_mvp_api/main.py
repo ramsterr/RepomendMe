@@ -12,6 +12,7 @@ import logging
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from reporelay_mvp import recommend as recommend_fn
@@ -44,6 +45,13 @@ app = FastAPI(
     title="RepoRelay MVP",
     version="0.1.0",
     description="Single-source GitHub repo recommender (5-stage pipeline, no graph/Redis).",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
