@@ -3,7 +3,7 @@
 There's no training, no ML pipeline, no model that learns. The system has three pieces that already know how to do their job:
 
 - **GitHub API** — tells you what a repo *is* (language, topics, stars, README)
-- **all-MiniLM-L6-v2** — a pre-trained sentence transformer that turns any text into 384 numbers (an embedding). It already knows that "Python web framework" and "async Python API" are similar concepts.
+- **BAAI/bge-small-en-v1.5** — a pre-trained sentence transformer that turns any text into 384 numbers (an embedding). It already knows that "Python web framework" and "async Python API" are similar concepts.
 - **Postgres + pgvector** — stores the data and finds repos with nearby embeddings
 
 You never train anything. You fetch data, embed text, run queries. That's it.
@@ -89,10 +89,13 @@ mvp_repos
 ├── topics        TEXT[]        ["python", "json", "swagger-ui"]
 ├── stars         INTEGER       stargazer count
 ├── dependencies  TEXT[]        package names from dependency graph
-├── embedding     VECTOR(384)   384 floats from sentence-transformers
+├── embedding     VECTOR(384)   384 floats from BAAI/bge-small-en-v1.5
+├── trending_score FLOAT        velocity signal from github.com/trending (0..1)
 ├── created_at    TIMESTAMPTZ
 ├── updated_at    TIMESTAMPTZ
-└── embedded_at   TIMESTAMPTZ   when embedding was computed
+├── embedded_at   TIMESTAMPTZ   when embedding was computed
+├── search_fetched_at TIMESTAMPTZ  when repo was indexed via GitHub Search
+└── trending_fetched_at TIMESTAMPTZ  when trending signal was last updated
 
 Indexes:
   ix_mvp_repos_language           btree on language
@@ -121,7 +124,7 @@ Indexes:
 
 ### Stage 2 — Features
 
-`features.py` computes 5 numbers for each (source, candidate) pair. All values are in [0, 1].
+`features.py` computes up to 7 numbers for each (source, candidate) pair. All values are in [0, 1].
 
 ```
 language_match:
@@ -146,6 +149,15 @@ popularity_sim:
   1 - |log1p(source.stars) - log1p(candidate.stars)| / log1p(500000)
   Captures: "are they at a similar scale?"
   (Log scale because 100 vs 200 stars matters more than 50k vs 51k)
+
+trending_boost:
+  Velocity signal scraped from github.com/trending.
+  min(1.0, stars_period / 100) — catches repos with viral growth.
+
+filter_cosine_sim (only when tags are provided):
+  Semantic similarity between the user's tag text and each candidate's
+  README embedding. Gives semantic tag matching — "machine learning"
+  matches ML repos even without that exact tag.
 ```
 
 ---
@@ -166,29 +178,53 @@ Result: ~150-250 candidates, down from potentially thousands.
 
 ### Stage 4 — Scoring
 
-`score.py` multiplies each feature by a weight and sums:
+`score.py` multiplies each feature by a weight and sums. There are two weight schemes:
 
+**Default (no tag filter):**
 ```
-score = 0.30 × language_match
-      + 0.30 × topic_overlap
+score = 0.25 × language_match
+      + 0.25 × topic_overlap
       + 0.20 × cosine_sim
       + 0.15 × dep_overlap
       + 0.05 × popularity_sim
+      + 0.10 × trending_boost
 ```
 
-The weights are hand-picked and live in a dict at the top of the file. No ML, no training. Change the numbers and the ranking changes immediately.
+**Tag-filtered (when user provides tags):**
+```
+score = 0.10 × language_match
+      + 0.20 × topic_overlap
+      + 0.10 × cosine_sim
+      + 0.30 × filter_cosine_sim
+      + 0.10 × dep_overlap
+      + 0.10 × popularity_sim
+      + 0.10 × trending_boost
+```
+
+The weights are hand-picked and live in dicts at the top of the file. No ML, no training. Change the numbers and the ranking changes immediately.
 
 ```python
 WEIGHTS = {
-    "language_match": 0.30,
-    "topic_overlap": 0.30,
+    "language_match": 0.25,
+    "topic_overlap": 0.25,
     "cosine_sim": 0.20,
     "dep_overlap": 0.15,
     "popularity_sim": 0.05,
+    "trending_boost": 0.10,
+}
+
+TAG_WEIGHTS = {
+    "language_match": 0.10,
+    "topic_overlap": 0.20,
+    "cosine_sim": 0.10,
+    "filter_cosine_sim": 0.30,
+    "dep_overlap": 0.10,
+    "popularity_sim": 0.10,
+    "trending_boost": 0.10,
 }
 ```
 
-Why these weights? Language and topic overlap are the strongest signals for "is this repo even in the same ballpark." Cosine similarity refines within that. Dependencies are a good tiebreaker. Popularity is a weak signal but prevents recommending micro-repos alongside massive ones.
+When a `seed` is provided, each weight is jittered by +/-10% deterministically (same seed = same weights) and `popularity_sim` is boosted 3x to surface "cooler" repos.
 
 ---
 
@@ -206,15 +242,30 @@ Why these weights? Language and topic overlap are the strongest signals for "is 
 
 ## The embedding model
 
-The model is `sentence-transformers/all-MiniLM-L6-v2` from HuggingFace. It was trained on 1B+ sentence pairs across many domains to predict which sentences are paraphrases of each other. It converts text into 384 numbers where semantically similar texts get nearby vectors.
+The model is `BAAI/bge-small-en-v1.5` from HuggingFace. It was trained on large-scale retrieval datasets and produces 384-dimensional embeddings optimized for semantic similarity. It converts text into 384 numbers where semantically similar texts get nearby vectors.
 
-The model is loaded once on first use (takes ~11 seconds on a Mac), then cached in memory for subsequent calls.
+The model is loaded once at API startup (takes ~11 seconds on a Mac) and cached in memory. Embedding computation runs in a thread pool via `asyncio.to_thread()` so it doesn't block the async event loop.
 
 The README text fed to the model is truncated to the first 8000 characters. For most repos, the first 8000 chars of README capture the project's purpose, installation, and basic usage — enough for semantic similarity.
+
+Cosine similarity is computed using numpy (vectorized matrix operations) for performance. When tag filtering is active, all candidate embeddings are compared against the filter embedding in a single batched matrix multiply.
 
 **You never train, fine-tune, or update this model.** It's a fixed building block, like `import json`.
 
 ---
+
+## What IS in this system
+
+| Feature | How it works |
+|---|---|
+| Content-based recommendations | 6 features weighted and scored, no user data needed |
+| Semantic tag filtering | Embed tag text, compare against candidate README embeddings |
+| Trending signal | Scrapes github.com/trending for viral repos |
+| GitHub webhooks | `POST /webhooks/github` clears embeddings on push for re-embedding |
+| Seed-based variation | Same seed = same results, different seed = different ranking |
+| Candidate growth | GitHub Search results are persisted back to the DB on every request |
+| Web UI | Astro frontend with search, explore, tag filtering, reroll |
+| CLI | Full CLI for save, recommend, seed, embed, trending |
 
 ## What's NOT in this system
 
@@ -223,10 +274,10 @@ The README text fed to the model is truncated to the first 8000 characters. For 
 | Training / ML pipeline | Weights are hand-tuned, model is pre-trained |
 | User data / profiles | No personalization needed for content-based recs |
 | Collaborative filtering | Needs real star/fork events from users |
-| Redis / caching | Queries are fast enough at <10k repos |
+| Redis / caching | GitHub search cached in-memory (5min TTL), queries are fast at current scale |
 | Graph traversal (2-hop) | SQL filter + pgvector covers the same ground simpler |
 | Feedback loop | Not needed to demonstrate the core loop |
-| Multiple strategies / blending | One strategy with 5 features is enough |
+| Multiple strategies / blending | One strategy with 6 features is enough |
 | Co-star / workflow signals | These need data the MVP doesn't collect |
 
 ---
