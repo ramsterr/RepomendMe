@@ -59,7 +59,7 @@ def _auth_client(token: str) -> httpx.AsyncClient:
     return httpx.AsyncClient(
         base_url=GITHUB_API,
         headers=_auth_headers(token),
-        timeout=httpx.Timeout(15.0, connect=8.0),
+        timeout=httpx.Timeout(5.0, connect=3.0),
     )
 
 

@@ -5,9 +5,12 @@
   "scripts": {
     "dev": "astro dev --port 4321",
     "build": "astro build",
-    "preview": "astro preview"
+    "build:local": "astro build --config astro.config.local.mjs",
+    "preview": "astro preview --host 127.0.0.1 --port 4321",
+    "preview:local": "node ./dist/server/entry.mjs"
   },
   "dependencies": {
+    "@astrojs/node": "^9.5.4",
     "@astrojs/vercel": "^8.2.11",
     "astro": "^5.0.0"
   },

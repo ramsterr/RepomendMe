@@ -42,7 +42,10 @@ const API = import.meta.env.PUBLIC_API_URL || "http://localhost:8001";
 
 <script define:vars={{ API, repo }}>
   var _fc = {};
-  function cachedFetch(url) {
+  function cachedFetch(url, opts) {
+    opts = opts || {};
+    var timeoutMs = opts.timeout || 8000;
+    var onSlow = opts.onSlow;
     var now = Date.now();
     if (_fc[url] && now - _fc[url].ts < 300000) {
       return Promise.resolve(_fc[url].data);
@@ -57,19 +60,33 @@ const API = import.meta.env.PUBLIC_API_URL || "http://localhost:8001";
         }
       }
     } catch (e) {}
-    return fetch(url).then(function (res) {
-      if (!res.ok) throw new Error("API " + res.status);
+    var controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+    var timeoutId = setTimeout(function () { if (controller) controller.abort(); }, timeoutMs);
+    var slowId = onSlow ? setTimeout(onSlow, 3000) : null;
+    var fetchOpts = controller ? { signal: controller.signal } : {};
+    return fetch(url, fetchOpts).then(function (res) {
+      clearTimeout(timeoutId);
+      if (slowId) clearTimeout(slowId);
+      if (!res.ok) throw new Error("API " + res.status + " " + (res.statusText || ""));
       return res.text().then(function (text) {
-        try {
-          var data = JSON.parse(text);
-        } catch (e) {
-          throw new Error("API returned non-JSON");
-        }
+        var data;
+        try { data = JSON.parse(text); }
+        catch (e) { throw new Error("API returned non-JSON response"); }
         var entry = { data: data, ts: now };
         _fc[url] = entry;
         try { sessionStorage.setItem("rr:" + url, JSON.stringify(entry)); } catch (e) {}
         return data;
       });
+    }).catch(function (err) {
+      clearTimeout(timeoutId);
+      if (slowId) clearTimeout(slowId);
+      if (controller && err && err.name === "AbortError") {
+        throw new Error("request timed out after " + (timeoutMs / 1000) + "s");
+      }
+      if (err && err.message && /Failed to fetch|NetworkError|Load failed/i.test(err.message)) {
+        throw new Error("API is unreachable — is the backend running on " + API + "?");
+      }
+      throw err;
     });
   }
 
@@ -152,20 +169,35 @@ const API = import.meta.env.PUBLIC_API_URL || "http://localhost:8001";
   function loadRecommendations() {
     var resultsEl = document.getElementById("results");
     var headerEl = document.getElementById("results-label");
+    var slowShown = false;
 
     var params = "repo=" + encodeURIComponent(repo) + "&limit=12";
     if (currentSeed !== undefined) params += "&seed=" + currentSeed;
     if (currentTags.length > 0) params += "&tags=" + encodeURIComponent(currentTags.join(","));
 
-    cachedFetch(API + "/recommend?" + params)
+    headerEl.textContent = "loading…";
+    resultsEl.innerHTML = '<div class="loading" id="results-loading">searching for similar repos…</div>';
+
+    cachedFetch(API + "/recommend?" + params, {
+      onSlow: function () {
+        slowShown = true;
+        var el = document.getElementById("results-loading");
+        if (el) el.textContent = "still searching… (cold start can take a few seconds)";
+      },
+    })
       .then(function (data) {
         var repos = data.repos || [];
         headerEl.textContent = repos.length + " recommendations" + (currentSeed !== undefined ? " (seed: " + currentSeed + ")" : "");
         resultsEl.innerHTML = renderResults(repos);
       })
       .catch(function (e) {
-        var msg = e.message || "failed to load";
-        resultsEl.innerHTML = '<div class="error">' + msg + '<br><small>make sure the API is reachable</small></div>';
+        var msg = (e && e.message) || "failed to load";
+        resultsEl.innerHTML =
+          '<div class="error">' + msg +
+          '<br><button type="button" class="btn btn-outline" style="margin-top:0.75rem;font-size:0.75rem;padding:0.4rem 0.8rem;" id="retry-btn">retry</button>' +
+          '</div>';
+        var retryBtn = document.getElementById("retry-btn");
+        if (retryBtn) retryBtn.addEventListener("click", function () { loadRecommendations(); });
       });
   }
 

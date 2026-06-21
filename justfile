@@ -25,10 +25,16 @@ api:
 site:
     cd apps/site && pnpm dev
 
+site-fast:
+    cd apps/site && pnpm build:local && pnpm preview:local
+
 dev:
     uv run --package reporelay-mvp-api uvicorn reporelay_mvp_api.main:app --reload --port 8001 &
     sleep 2
     cd apps/site && pnpm dev
+
+build-site:
+    cd apps/site && pnpm build
 
 migrate:
     uv run --package reporelay-mvp alembic -c packages/mvp/alembic.ini upgrade head

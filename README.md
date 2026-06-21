@@ -43,9 +43,14 @@ just mvp recommend fastapi/fastapi
 
 ```bash
 just api          # API server on :8001
-just site         # Web UI on :4321
+just site         # Web UI on :4321  (Astro dev — first request compiles, then fast)
+just site-fast    # Built site on :4321  (no Vite compile, always fast)
 just dev          # Both at once
 ```
+
+`pnpm dev` (`just site`) is slow on the very first request to each page because
+Vite has to compile it. If you want instant first-paint locally, use `just site-fast`
+which builds the site once with the Node adapter and serves the prebuilt output.
 
 ---
 

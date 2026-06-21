@@ -23,7 +23,10 @@ const API = import.meta.env.PUBLIC_API_URL || "http://localhost:8001";
 <script is:inline define:vars={{ API }}>
 
   var _fc = {};
-  function cachedFetch(url) {
+  function cachedFetch(url, opts) {
+    opts = opts || {};
+    var timeoutMs = opts.timeout || 8000;
+    var onSlow = opts.onSlow;
     var now = Date.now();
     if (_fc[url] && now - _fc[url].ts < 300000) {
       return Promise.resolve(_fc[url].data);
@@ -38,19 +41,33 @@ const API = import.meta.env.PUBLIC_API_URL || "http://localhost:8001";
         }
       }
     } catch (e) {}
-    return fetch(url).then(function (res) {
-      if (!res.ok) throw new Error("API " + res.status);
+    var controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+    var timeoutId = setTimeout(function () { if (controller) controller.abort(); }, timeoutMs);
+    var slowId = onSlow ? setTimeout(onSlow, 3000) : null;
+    var fetchOpts = controller ? { signal: controller.signal } : {};
+    return fetch(url, fetchOpts).then(function (res) {
+      clearTimeout(timeoutId);
+      if (slowId) clearTimeout(slowId);
+      if (!res.ok) throw new Error("API " + res.status + " " + (res.statusText || ""));
       return res.text().then(function (text) {
-        try {
-          var data = JSON.parse(text);
-        } catch (e) {
-          throw new Error("API returned non-JSON");
-        }
+        var data;
+        try { data = JSON.parse(text); }
+        catch (e) { throw new Error("API returned non-JSON response"); }
         var entry = { data: data, ts: now };
         _fc[url] = entry;
         try { sessionStorage.setItem("rr:" + url, JSON.stringify(entry)); } catch (e) {}
         return data;
       });
+    }).catch(function (err) {
+      clearTimeout(timeoutId);
+      if (slowId) clearTimeout(slowId);
+      if (controller && err && err.name === "AbortError") {
+        throw new Error("request timed out after " + (timeoutMs / 1000) + "s");
+      }
+      if (err && err.message && /Failed to fetch|NetworkError|Load failed/i.test(err.message)) {
+        throw new Error("API is unreachable — is the backend running on " + API + "?");
+      }
+      throw err;
     });
   }
 
@@ -77,12 +94,59 @@ const API = import.meta.env.PUBLIC_API_URL || "http://localhost:8001";
 
   var totalCountByTopic = {};
 
+  function loadTopicDetail(topic) {
+    var detail = document.getElementById("topic-detail");
+    if (!detail) return;
+    detail.innerHTML = '<div class="loading">loading ' + topic + '…</div>';
+    detail.scrollIntoView({ behavior: "smooth" });
+    var allCards = document.querySelectorAll(".topic-card");
+    for (var k = 0; k < allCards.length; k++) {
+      allCards[k].classList.remove("active");
+    }
+    var activeCard = document.querySelector('.topic-card[data-topic="' + topic + '"]');
+    if (activeCard) activeCard.classList.add("active");
+
+    cachedFetch(API + "/popular?topic=" + encodeURIComponent(topic) + "&limit=10", {
+      timeout: 12000,
+      onSlow: function () {
+        var d = document.getElementById("topic-detail");
+        if (d) d.innerHTML = '<div class="loading">still loading ' + topic + '…</div>';
+      },
+    })
+      .then(function (data) {
+        var total = totalCountByTopic[topic] || 0;
+        var shown = Math.min(10, data.repos.length);
+        var titleHtml =
+          '<p class="section-label" style="margin-top: 1rem;">' +
+          'showing ' + shown + ' of ' + total + ' <strong>' + topic + '</strong> repos &nbsp;' +
+          '<a href="/repo/' + (data.repos[0]?.full_name || '') + '" ' +
+          'class="btn btn-outline" style="display:inline-block;font-size:0.75rem;">' +
+          'recommend from top</a>' +
+          '</p>';
+        detail.innerHTML = titleHtml + renderRepos(data.repos);
+      })
+      .catch(function (e) {
+        var msg = (e && e.message) || "failed to load";
+        detail.innerHTML =
+          '<div class="error">' + msg +
+          '<br><button type="button" class="btn btn-outline" style="margin-top:0.5rem;font-size:0.75rem;padding:0.3rem 0.7rem;" id="retry-topic">retry</button>' +
+          '</div>';
+        var rb = document.getElementById("retry-topic");
+        if (rb) rb.addEventListener("click", function () { loadTopicDetail(topic); });
+      });
+  }
+
   function loadTopics() {
     var el = document.getElementById("explore-container");
     if (!el) return;
-    el.innerHTML = '<div class="loading">loading topics…</div>';
+    el.innerHTML = '<div class="loading" id="topics-loading">loading topics…</div>';
 
-    cachedFetch(API + "/topics?limit=40")
+    cachedFetch(API + "/topics?limit=40", {
+      onSlow: function () {
+        var tl = document.getElementById("topics-loading");
+        if (tl) tl.textContent = "still loading…";
+      },
+    })
       .then(function (data) {
         var topics = (data.topics || []).filter(function (t) {
           // skip overly broad or spammy tags
@@ -115,40 +179,18 @@ const API = import.meta.env.PUBLIC_API_URL || "http://localhost:8001";
         var cards = el.querySelectorAll(".topic-card");
         for (var j = 0; j < cards.length; j++) {
           cards[j].addEventListener("click", function () {
-            var topic = this.getAttribute("data-topic");
-            var detail = document.getElementById("topic-detail");
-            if (!detail) return;
-            detail.innerHTML = '<div class="loading">loading ' + topic + '…</div>';
-            detail.scrollIntoView({ behavior: "smooth" });
-
-            // mark active card
-            var allCards = el.querySelectorAll(".topic-card");
-            for (var k = 0; k < allCards.length; k++) {
-              allCards[k].classList.remove("active");
-            }
-            this.classList.add("active");
-
-            cachedFetch(API + "/popular?topic=" + encodeURIComponent(topic) + "&limit=10")
-              .then(function (data) {
-                var total = totalCountByTopic[topic] || 0;
-                var shown = Math.min(10, data.repos.length);
-                var titleHtml =
-                  '<p class="section-label" style="margin-top: 1rem;">' +
-                  'showing ' + shown + ' of ' + total + ' <strong>' + topic + '</strong> repos &nbsp;' +
-                  '<a href="/repo/' + (data.repos[0]?.full_name || '') + '" ' +
-                  'class="btn btn-outline" style="display:inline-block;font-size:0.75rem;">' +
-                  'recommend from top</a>' +
-                  '</p>';
-                detail.innerHTML = titleHtml + renderRepos(data.repos);
-              })
-              .catch(function () {
-                detail.innerHTML = '<div class="error">failed to load repos</div>';
-              });
+            loadTopicDetail(this.getAttribute("data-topic"));
           });
         }
       })
-      .catch(function () {
-        el.innerHTML = '<div class="error">failed to load topics — API is unreachable</div>';
+      .catch(function (e) {
+        var msg = (e && e.message) || "failed to load topics";
+        el.innerHTML =
+          '<div class="error">' + msg +
+          '<br><button type="button" class="btn btn-outline" style="margin-top:0.75rem;font-size:0.75rem;padding:0.4rem 0.8rem;" id="retry-topics">retry</button>' +
+          '</div>';
+        var rb = document.getElementById("retry-topics");
+        if (rb) rb.addEventListener("click", function () { loadTopics(); });
       });
   }
 

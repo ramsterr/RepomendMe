@@ -20,8 +20,12 @@ pipeline against it — the "surprise me / explore" feature.
 
 from __future__ import annotations
 
+import json
 import logging
+import os
+import tempfile
 import time
+from pathlib import Path
 from typing import Any
 
 from reporelay_mvp import data
@@ -45,6 +49,34 @@ SEARCH_LIMIT = 100  # how many fresh candidates to pull from GitHub per call
 
 _cached_search_results: dict[str, tuple[float, Any]] = {}
 _CACHE_TTL = 300
+_DISK_CACHE_TTL = 24 * 3600  # 24h — GitHub search results don't change fast
+_DISK_CACHE_PATH = Path(
+    os.environ.get("REPORE_LAY_SEARCH_CACHE")
+    or Path(tempfile.gettempdir()) / "reporelay_search_cache.json"
+)
+_MIN_DB_POOL_FOR_SKIP = 200  # if DB pool is already this big, skip the GitHub search
+
+_SEARCH_CACHE: dict[str, dict[str, Any]] = {}
+
+
+def _load_disk_cache() -> None:
+    if _SEARCH_CACHE:
+        return
+    try:
+        if _DISK_CACHE_PATH.exists():
+            _SEARCH_CACHE.update(json.loads(_DISK_CACHE_PATH.read_text()))
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning("search cache load failed: %s", exc)
+
+
+def _save_disk_cache() -> None:
+    try:
+        _DISK_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _DISK_CACHE_PATH.with_suffix(".tmp")
+        tmp.write_text(json.dumps(_SEARCH_CACHE))
+        tmp.replace(_DISK_CACHE_PATH)
+    except OSError as exc:
+        logger.warning("search cache save failed: %s", exc)
 
 
 async def _cached_search(
@@ -52,13 +84,25 @@ async def _cached_search(
 ) -> dict[str, Any]:
     key = repr((language, tuple(sorted(topics or []))))
     now = time.monotonic()
+
     if key in _cached_search_results:
         ts, cached = _cached_search_results[key]
         if now - ts < _CACHE_TTL:
-            logger.info("search cache hit for %s", key)
+            logger.info("search cache hit (memory) for %s", key)
             return cached
+
+    _load_disk_cache()
+    disk = _SEARCH_CACHE.get(key)
+    if disk and (time.time() - float(disk.get("ts", 0))) < _DISK_CACHE_TTL:
+        logger.info("search cache hit (disk) for %s", key)
+        result = disk["payload"]
+        _cached_search_results[key] = (now, result)
+        return result
+
     result = await search_repositories(client, topics=topics, language=language, **kwargs)
     _cached_search_results[key] = (now, result)
+    _SEARCH_CACHE[key] = {"ts": time.time(), "payload": result}
+    _save_disk_cache()
     return result
 
 
@@ -163,6 +207,14 @@ async def _expand_pool(
     """
     db_candidates = await generate_candidates(session, source, seed=seed, tags=tags)
     logger.info("db pool: %d candidates", len(db_candidates))
+
+    if len(db_candidates) >= _MIN_DB_POOL_FOR_SKIP:
+        logger.info(
+            "db pool has %d candidates (>= %d) — skipping github search for speed",
+            len(db_candidates),
+            _MIN_DB_POOL_FOR_SKIP,
+        )
+        return db_candidates
 
     settings = get_mvp_settings()
     search_items: list[dict[str, Any]] = []
