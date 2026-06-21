@@ -1,4 +1,4 @@
-const API = "http://localhost:8001";
+const API = import.meta.env.PUBLIC_API_URL || "http://localhost:8001";
 
 export interface ScoredRepo {
   id: number;

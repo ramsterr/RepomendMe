@@ -8,9 +8,11 @@ interface PopularRepo {
   stars: number;
 }
 
+const API = import.meta.env.PUBLIC_API_URL || "http://localhost:8001";
+
 let popular: PopularRepo[] = [];
 try {
-  const res = await fetch("http://localhost:8001/popular?limit=8");
+  const res = await fetch(`${API}/popular?limit=8`);
   if (res.ok) {
     const payload = await res.json();
     popular = payload.repos ?? [];
