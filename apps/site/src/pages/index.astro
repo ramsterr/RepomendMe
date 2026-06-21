@@ -1,25 +1,7 @@
 ---
 import Base from "../layouts/Base.astro";
 
-interface PopularRepo {
-  full_name: string;
-  description: string | null;
-  language: string | null;
-  stars: number;
-}
-
 const API = import.meta.env.PUBLIC_API_URL || "http://localhost:8001";
-
-let popular: PopularRepo[] = [];
-try {
-  const res = await fetch(`${API}/popular?limit=8`);
-  if (res.ok) {
-    const payload = await res.json();
-    popular = payload.repos ?? [];
-  }
-} catch {
-  popular = [];
-}
 ---
 
 <Base>
@@ -45,8 +27,8 @@ try {
   </div>
 
   <p class="section-label">try one of these</p>
-  <div class="example-repos">
-    {popular.map((r) => <a href={`/repo/${r.full_name}`}>{r.full_name}</a>)}
+  <div class="example-repos" id="popular-repos">
+    <span style="opacity:0.4">loading…</span>
   </div>
 
   <div class="actions" style="margin-top: 2rem;">
@@ -56,15 +38,30 @@ try {
   </div>
 </Base>
 
-<script is:inline>
+<script define:vars={{ API }}>
+
+  var el = document.getElementById("popular-repos");
+  if (el) {
+    fetch(API + "/popular?limit=8")
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        var repos = data.repos || [];
+        var html = "";
+        for (var i = 0; i < repos.length; i++) {
+          html += '<a href="/repo/' + repos[i].full_name + '">' + repos[i].full_name + '</a>';
+        }
+        el.innerHTML = html;
+      })
+      .catch(function () {
+        el.innerHTML = "";
+      });
+  }
+
   function parseRepo(val) {
     val = val.trim();
-    // strip https://github.com/ prefix
     var m = val.match(/^(?:https?:\/\/)?(?:www\.)?github\.com\/([^\/]+\/[^\/\s?#]+)/i);
     if (m) return m[1];
-    // strip leading slash if present: /owner/name -> owner/name
     if (val.startsWith("/")) val = val.slice(1);
-    // plain owner/name
     if (val.includes("/") && !val.includes(" ")) return val;
     return null;
   }
