@@ -102,7 +102,8 @@ async def popular(
             rows = await session.execute(
                 text(
                     """
-                    SELECT id, full_name, description, language, stars
+                    SELECT id, full_name, description, language, stars,
+                           COALESCE(trending_score, 0) AS trending_score
                     FROM mvp_repos
                     WHERE :topic = ANY(topics)
                     ORDER BY stars DESC
