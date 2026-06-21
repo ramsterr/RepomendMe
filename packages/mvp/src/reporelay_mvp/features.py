@@ -1,13 +1,14 @@
 """
 Stage 2 of the MVP pipeline: feature engineering.
 
-For each (source, candidate) pair, we compute five features:
+For each (source, candidate) pair, we compute six features:
 
   - language_match : 1.0 if same language, 0.0 otherwise
   - topic_overlap  : Jaccard similarity of topic sets
   - cosine_sim     : 1 - cosine_distance from pgvector
   - dep_overlap    : Jaccard similarity of dependency names
   - popularity_sim : log-scale similarity of star counts
+  - trending_boost : velocity signal from github.com/trending (0..1)
 
 All features are in [0, 1]. The scorer is a fixed weighted sum.
 """
@@ -29,6 +30,7 @@ def compute_features(source: Repo, candidate: Repo, *, cosine_sim: float, filter
         cosine_sim=_clamp(cosine_sim),
         dep_overlap=_jaccard(source.dependencies, candidate.dependencies),
         popularity_sim=_popularity_sim(source.stars, candidate.stars),
+        trending_boost=_clamp(candidate.trending_score),
         filter_cosine_sim=_clamp(filter_cosine_sim),
     )
 

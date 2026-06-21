@@ -7,6 +7,8 @@ Commands:
   reporelay-mvp recommend owner/name  print ranked recommendations
   reporelay-mvp explore               surprise me — random repo, recs
   reporelay-mvp seed                  bulk-index the corpus from GitHub search
+  reporelay-mvp embed                 embed READMEs of un-embedded repos
+  reporelay-mvp trending              scrape github.com/trending for viral repos
 """
 
 from __future__ import annotations
@@ -23,10 +25,12 @@ from rich.logging import RichHandler
 
 from reporelay_mvp import recommend as recommend_func
 from reporelay_mvp import recommend_random as explore_func
+from reporelay_mvp import data
 from reporelay_mvp.embed_pass import embed_top
 from reporelay_mvp.github import save_repo
 from reporelay_mvp.seed import DEFAULT_LANGUAGES, seed_corpus
 from reporelay_mvp.settings import get_mvp_settings
+from reporelay_mvp.trending import DEFAULT_LANGUAGES as TRENDING_LANGUAGES, scrape_all
 
 app = typer.Typer(help="RepoRelay MVP CLI", no_args_is_help=True)
 console = Console()
@@ -201,6 +205,155 @@ def embed(
     console.print(
         f"[bold green]done — {result['succeeded']}/{result['attempted']} embedded, "
         f"{result['failed']} failed[/bold green]"
+    )
+
+
+@app.command()
+def register_webhooks(
+    min_stars: int = typer.Option(
+        1000, help="only register webhooks for repos with at least this many stars"
+    ),
+    callback_url: str = typer.Option(
+        ...,
+        help="public URL of the deployed API (e.g. https://reporelay-mvp-api-0w1k.onrender.com)",
+    ),
+    secret: str = typer.Option(
+        ...,
+        help="GITHUB_WEBHOOK_SECRET value (must match what the API was started with)",
+    ),
+) -> None:
+    """
+    Register GitHub webhooks on top-starred repos so push events trigger re-embed.
+
+    Run once after deploy. Safe to re-run — duplicate registrations are 409'd.
+    """
+    _configure_logging()
+
+    import httpx
+
+    headers = {
+        "Authorization": f"Bearer {get_mvp_settings().github_token}",
+        "Accept": "application/vnd.github+json",
+    }
+
+    async def register_one(client: httpx.AsyncClient, repo: dict[str, Any]) -> bool:
+        owner, name = repo["owner"]["login"], repo["name"]
+        url = f"https://api.github.com/repos/{owner}/{name}/hooks"
+        body = {
+            "name": "web",
+            "active": True,
+            "events": ["push"],
+            "config": {
+                "url": f"{callback_url.rstrip('/')}/webhooks/github",
+                "content_type": "json",
+                "secret": secret,
+                "insecure_ssl": "0",
+            },
+        }
+        r = await client.post(url, headers=headers, json=body)
+        if r.status_code == 201:
+            console.print(f"  [green]✓[/green] {owner}/{name}")
+            return True
+        if r.status_code == 422:
+            console.print(f"  [yellow]~[/yellow] {owner}/{name} (already has webhook)")
+            return False
+        console.print(f"  [red]✗[/red] {owner}/{name}: {r.status_code} {r.text[:120]}")
+        return False
+
+    async def run() -> int:
+        registered = 0
+        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
+            for page in range(1, 11):
+                params = {"q": f"stars:>{min_stars}", "per_page": 100, "page": page}
+                r = await client.get(
+                    "https://api.github.com/search/repositories",
+                    headers=headers,
+                    params=params,
+                )
+                r.raise_for_status()
+                items = r.json().get("items", [])
+                if not items:
+                    break
+                for item in items:
+                    if await register_one(client, item):
+                        registered += 1
+        return registered
+
+    n = asyncio.run(run())
+    console.print(f"[bold green]done — {n} webhooks registered[/bold green]")
+
+
+@app.command()
+def trending(
+    languages: str = typer.Option(
+        "",
+        help="comma-separated languages (default: top 10 + 'all languages')",
+    ),
+    since: str = typer.Option(
+        "daily",
+        help="time window: daily, weekly, or monthly",
+    ),
+    delay_s: float = typer.Option(
+        10.0,
+        help="seconds between language scrapes (be polite to github.com)",
+    ),
+) -> None:
+    """
+    Scrape github.com/trending for viral repos. Free (no API rate limit),
+    catches repos the search API misses because total stars are still low.
+
+    Updates the `trending_score` column on existing mvp_repos rows.
+    """
+    _configure_logging()
+    if since not in ("daily", "weekly", "monthly"):
+        console.print(f"[red]since must be daily/weekly/monthly, got {since!r}[/red]")
+        raise typer.Exit(code=1)
+
+    lang_list: list[str]
+    if languages:
+        lang_list = [s.strip() for s in languages.split(",") if s.strip()]
+    else:
+        lang_list = list(TRENDING_LANGUAGES)
+
+    console.print(
+        f"[bold]scraping trending[/bold] since={since} langs={len(lang_list)}"
+    )
+
+    repos = asyncio.run(
+        scrape_all(languages=lang_list, since=since, delay_s=delay_s)
+    )
+    if not repos:
+        console.print("[yellow]no trending repos found — github.com may have changed HTML[/yellow]")
+        return
+
+    star_field = {
+        "daily": "stars_today",
+        "weekly": "stars_this_week",
+        "monthly": "stars_this_month",
+    }[since]
+
+    rows = [
+        {
+            "full_name": r.full_name,
+            "description": r.description,
+            "language": r.language,
+            "stars_period": r.stars_today,
+            "total_stars": r.total_stars,
+        }
+        for r in repos
+    ]
+    rows = [{**r, "stars_period": getattr(r_obj, star_field, r["stars_period"])} for r, r_obj in zip(rows, repos)]
+
+    async def apply() -> int:
+        session = await data.get_session()
+        try:
+            return await data.bulk_apply_trending_signal(session, rows, since=since)
+        finally:
+            await session.close()
+
+    updated = asyncio.run(apply())
+    console.print(
+        f"[bold green]done — {updated}/{len(repos)} trending repos updated in mvp_repos[/bold green]"
     )
 
 

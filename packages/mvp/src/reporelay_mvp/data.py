@@ -16,7 +16,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from reporelay_mvp.db import _get_sessionmaker
 from reporelay_mvp.models import Repo
 
-EXPECTED_COLUMNS = "id, owner, name, full_name, description, language, topics, stars, dependencies"
+EXPECTED_COLUMNS = (
+    "id, owner, name, full_name, description, language, topics, stars, "
+    "dependencies, trending_score"
+)
 
 
 def _row_to_repo(row: Any) -> Repo:
@@ -31,6 +34,7 @@ def _row_to_repo(row: Any) -> Repo:
         topics=list(data.get("topics") or []),
         stars=int(data.get("stars") or 0),
         dependencies=list(data.get("dependencies") or []),
+        trending_score=float(data.get("trending_score") or 0.0),
     )
 
 
@@ -144,6 +148,66 @@ async def bulk_upsert_from_search(
     return len(params)
 
 
+async def bulk_apply_trending_signal(
+    session: AsyncSession,
+    rows: list[dict[str, Any]],
+    *,
+    since: str,
+) -> int:
+    """
+    Apply per-period star velocity (scraped from github.com/trending) to
+    rows that already exist in mvp_repos. New repos not in the DB are
+    skipped — the search/seed pipeline is the source of truth for
+    repo existence; trending is purely a velocity signal.
+
+    `trending_score` is computed as min(1.0, stars_period / 100) so it
+    sits in [0, 1] and can be weighted directly in the recommender.
+
+    Returns the number of rows updated.
+    """
+    if not rows:
+        return 0
+
+    star_col = {
+        "daily": "stars_today",
+        "weekly": "stars_this_week",
+        "monthly": "stars_this_month",
+    }[since]
+
+    updated = 0
+    for row in rows:
+        full_name = row["full_name"]
+        stars = int(row.get("stars_period") or 0)
+        trending_score = min(1.0, stars / 100.0) if stars > 0 else 0.0
+
+        result = await session.execute(
+            text(
+                f"""
+                UPDATE mvp_repos
+                SET {star_col} = :stars,
+                    trending_score = :trending_score,
+                    trending_fetched_at = NOW(),
+                    description = COALESCE(:description, description),
+                    language = COALESCE(:language, language),
+                    stars = GREATEST(stars, :total_stars)
+                WHERE full_name = :full_name
+                """
+            ),
+            {
+                "full_name": full_name,
+                "stars": stars,
+                "trending_score": trending_score,
+                "description": row.get("description"),
+                "language": row.get("language"),
+                "total_stars": int(row.get("total_stars") or 0),
+            },
+        )
+        updated += result.rowcount or 0
+
+    await session.commit()
+    return updated
+
+
 async def list_repos_needing_embedding(session: AsyncSession, *, limit: int) -> list[Repo]:
     """
     Return repos that have no embedding yet — candidates for the
@@ -183,6 +247,30 @@ async def set_embedding(
         ),
         {"id": repo_id, "embedding": embedding},
     )
+
+
+async def clear_embedding_for_reembed(
+    session: AsyncSession, *, full_name: str
+) -> int:
+    """
+    Mark a repo for re-embedding by nulling its embedding column.
+    Called from the GitHub webhook receiver when a watched repo
+    receives a push to its default branch.
+
+    Returns the rowcount (0 if the repo isn't in mvp_repos, 1 if cleared).
+    """
+    result = await session.execute(
+        text(
+            """
+            UPDATE mvp_repos
+            SET embedding = NULL, embedded_at = NULL
+            WHERE full_name = :full_name
+            """
+        ),
+        {"full_name": full_name},
+    )
+    await session.commit()
+    return result.rowcount or 0
 
 
 async def get_repo(session: AsyncSession, full_name: str) -> Repo | None:

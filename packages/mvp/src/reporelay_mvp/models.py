@@ -24,6 +24,7 @@ class Repo(BaseModel):
     stars: int = 0
     dependencies: list[str] = Field(default_factory=list)
     embedding: list[float] | None = None
+    trending_score: float = 0.0
 
 
 class Recommendation(BaseModel):
@@ -59,6 +60,7 @@ class Features:
     cosine_sim: float
     dep_overlap: float
     popularity_sim: float
+    trending_boost: float = 0.0
     filter_cosine_sim: float = 0.0
 
     def as_dict(self) -> dict[str, float]:
@@ -68,5 +70,6 @@ class Features:
             "cosine_sim": self.cosine_sim,
             "dep_overlap": self.dep_overlap,
             "popularity_sim": self.popularity_sim,
+            "trending_boost": self.trending_boost,
             "filter_cosine_sim": self.filter_cosine_sim,
         }

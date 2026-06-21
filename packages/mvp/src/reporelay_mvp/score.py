@@ -32,20 +32,22 @@ from reporelay_mvp.models import Features, Repo
 logger = logging.getLogger(__name__)
 
 WEIGHTS: dict[str, float] = {
-    "language_match": 0.30,
-    "topic_overlap": 0.30,
+    "language_match": 0.25,
+    "topic_overlap": 0.25,
     "cosine_sim": 0.20,
     "dep_overlap": 0.15,
     "popularity_sim": 0.05,
+    "trending_boost": 0.10,
 }
 
 TAG_WEIGHTS: dict[str, float] = {
     "language_match": 0.10,
-    "topic_overlap": 0.25,
+    "topic_overlap": 0.20,
     "cosine_sim": 0.10,
-    "filter_cosine_sim": 0.35,
+    "filter_cosine_sim": 0.30,
     "dep_overlap": 0.10,
     "popularity_sim": 0.10,
+    "trending_boost": 0.10,
 }
 
 

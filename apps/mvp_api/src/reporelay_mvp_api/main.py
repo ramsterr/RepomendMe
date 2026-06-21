@@ -63,6 +63,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+import os
+
+app.state.github_webhook_secret = os.environ.get("GITHUB_WEBHOOK_SECRET", "")
+
+from reporelay_mvp_api.webhooks import router as webhooks_router
+
+app.include_router(webhooks_router)
+
 
 @app.get("/health", response_model=HealthResponse)
 async def health() -> HealthResponse:
@@ -75,6 +83,7 @@ class PopularRepo(BaseModel):
     description: str | None = None
     language: str | None = None
     stars: int
+    trending_score: float = 0.0
 
 
 class PopularResponse(BaseModel):
@@ -106,7 +115,8 @@ async def popular(
             rows = await session.execute(
                 text(
                     """
-                    SELECT id, full_name, description, language, stars
+                    SELECT id, full_name, description, language, stars,
+                           COALESCE(trending_score, 0) AS trending_score
                     FROM mvp_repos
                     ORDER BY stars DESC
                     LIMIT :limit
@@ -121,6 +131,7 @@ async def popular(
                 description=r.description,
                 language=r.language,
                 stars=r.stars,
+                trending_score=float(r.trending_score or 0.0),
             )
             for r in rows
         ]
