@@ -230,81 +230,90 @@ const API = import.meta.env.PUBLIC_API_URL || "http://localhost:8001";
 <style is:inline>
   .topic-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-    gap: 0.6rem;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 0.85rem;
   }
 
   .topic-card {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: 0.25rem;
-    padding: 0.7rem 0.9rem;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
-    border-radius: 6px;
+    gap: 0.35rem;
+    padding: 1rem 1.2rem;
+    background: var(--bg-glass, rgba(13, 17, 23, 0.55));
+    backdrop-filter: blur(10px) saturate(1.2);
+    -webkit-backdrop-filter: blur(10px) saturate(1.2);
+    border: 1px solid var(--border-soft, rgba(255, 255, 255, 0.06));
+    border-radius: 10px;
     cursor: pointer;
-    transition: background 0.15s, border-color 0.15s;
+    transition: background 0.15s, border-color 0.15s, transform 0.05s;
     color: inherit;
     font: inherit;
     text-align: left;
   }
 
   .topic-card:hover {
-    background: rgba(255, 255, 255, 0.08);
-    border-color: var(--accent, #58a6ff);
+    background: var(--bg-glass-hover, rgba(13, 17, 23, 0.7));
+    border-color: var(--accent, #39d353);
   }
 
   .topic-card.active {
-    background: rgba(88, 166, 255, 0.12);
-    border-color: var(--accent, #58a6ff);
+    background: rgba(57, 211, 83, 0.15);
+    border-color: var(--accent, #39d353);
   }
 
   .topic-name {
-    font-weight: 600;
-    font-size: 0.85rem;
-    color: var(--accent, #58a6ff);
+    font-weight: 700;
+    font-size: 0.95rem;
+    color: var(--accent, #39d353);
+    font-family: var(--font-mono, "Space Mono", monospace);
   }
 
   .topic-count {
-    font-size: 0.7rem;
-    opacity: 0.5;
+    font-size: 0.8rem;
+    opacity: 0.65;
   }
 
   .topic-repos {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: 0.65rem;
   }
 
   .repo-chip {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    padding: 0.5rem 0.7rem;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
-    border-radius: 5px;
+    gap: 0.75rem;
+    padding: 0.85rem 1.1rem;
+    background: var(--bg-glass, rgba(13, 17, 23, 0.55));
+    backdrop-filter: blur(10px) saturate(1.2);
+    -webkit-backdrop-filter: blur(10px) saturate(1.2);
+    border: 1px solid var(--border-soft, rgba(255, 255, 255, 0.06));
+    border-radius: 10px;
     text-decoration: none;
     color: inherit;
-    font-size: 0.85rem;
-    transition: background 0.1s;
+    font-size: 1rem;
+    transition: background 0.15s, border-color 0.15s;
   }
 
   .repo-chip:hover {
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--bg-glass-hover, rgba(13, 17, 23, 0.7));
+    border-color: var(--accent, #39d353);
   }
 
   .repo-chip strong {
     color: var(--text, #e6edf3);
+    font-family: var(--font-mono, "Space Mono", monospace);
+    font-weight: 700;
   }
 
   .badge-lang {
-    font-size: 0.65rem;
-    padding: 0.1rem 0.4rem;
-    background: rgba(88, 166, 255, 0.15);
-    border: 1px solid rgba(88, 166, 255, 0.25);
-    border-radius: 3px;
-    color: var(--accent, #58a6ff);
+    font-size: 0.78rem;
+    padding: 0.3rem 0.65rem;
+    background: rgba(57, 211, 83, 0.1);
+    border: 1px solid rgba(57, 211, 83, 0.25);
+    border-radius: 100px;
+    color: var(--accent, #39d353);
+    font-family: var(--font-mono, "Space Mono", monospace);
   }
 </style>

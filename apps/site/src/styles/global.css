@@ -7,30 +7,67 @@
 }
 
 :root {
-  --bg: #fafaf7;
-  --card-bg: #ffffff;
-  --text: #1a1a1a;
-  --text-dim: #6b6b6b;
-  --border: #e5e5e0;
-  --accent: #2563eb;
-  --accent-dim: #3b82f6;
-  --red: #dc2626;
-  --green: #16a34a;
-  --orange: #ea580c;
-  --radius: 10px;
+  --bg: #0d1117;
+  --bg-elev: #161b22;
+  --bg-glass: rgba(13, 17, 23, 0.55);
+  --bg-glass-hover: rgba(13, 17, 23, 0.7);
+  --text: #e6edf3;
+  --text-dim: #8b949e;
+  --border: #30363d;
+  --border-soft: rgba(255, 255, 255, 0.06);
+  --accent: #39d353;
+  --accent-dim: #26a641;
+  --accent-deep: #006d32;
+  --accent-faint: #0e4429;
+  --red: #f85149;
+  --green: #39d353;
+  --orange: #f0883e;
+
+  --grid-step-0: #0d1117;
+  --grid-step-1: #0e4429;
+  --grid-step-2: #006d32;
+  --grid-step-3: #26a641;
+  --grid-step-4: #39d353;
+
+  --radius: 12px;
+  --radius-sm: 8px;
   --font: "Inter", system-ui, -apple-system, sans-serif;
   --font-mono: "Space Mono", "Courier New", monospace;
 }
 
+html,
+body {
+  min-height: 100vh;
+}
+
 body {
   font-family: var(--font);
-  background-color: var(--bg);
-  background-image: url("data:image/svg+xml,%3Csvg width='40' height='40' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='40' height='40' fill='none' stroke='%23e0e0d8' stroke-width='0.5'/%3E%3C/svg%3E");
-  background-size: 40px 40px;
-  color: var(--text);
+  font-size: 1.05rem;
   line-height: 1.6;
+  background-color: var(--bg);
+  color: var(--text);
   min-height: 100vh;
-  cursor: url("data:image/svg+xml,%3Csvg width='18' height='18' viewBox='0 0 18 18' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='9' cy='9' r='7' stroke='%23333' stroke-width='2'/%3E%3Ccircle cx='9' cy='9' r='2' fill='%23333'/%3E%3C/svg%3E") 9 9, auto;
+  cursor: url("data:image/svg+xml,%3Csvg width='18' height='18' viewBox='0 0 18 18' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='9' cy='9' r='7' stroke='%2339d353' stroke-width='2'/%3E%3Ccircle cx='9' cy='9' r='2' fill='%2339d353'/%3E%3C/svg%3E") 9 9, auto;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#commit-grid {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: -1;
+  pointer-events: none;
+  display: block;
+  opacity: 0;
+  animation: gridFade 600ms ease-out 80ms forwards;
+}
+
+@keyframes gridFade {
+  to {
+    opacity: 1;
+  }
 }
 
 a {
@@ -42,25 +79,26 @@ nav {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 1.5rem 0;
+  padding: 1.75rem 0;
   margin-bottom: 3rem;
 }
 
 nav .logo {
   font-family: var(--font-mono);
-  font-size: 1rem;
+  font-size: 1.15rem;
   font-weight: 700;
   letter-spacing: -0.02em;
+  color: var(--accent);
 }
 
 nav .links {
   display: flex;
-  gap: 1.5rem;
+  gap: 2rem;
 }
 
 nav .links a {
   font-family: var(--font-mono);
-  font-size: 0.8rem;
+  font-size: 0.95rem;
   text-transform: lowercase;
   color: var(--text-dim);
   transition: color 0.15s;
@@ -68,121 +106,157 @@ nav .links a {
 
 nav .links a:hover,
 nav .links a.active {
-  color: var(--text);
+  color: var(--accent);
 }
 
 main {
-  max-width: 860px;
+  max-width: 1080px;
   margin: 0 auto;
-  padding: 0 1.5rem 4rem;
+  padding: 0 2rem 5rem;
 }
 
 h1 {
   font-family: var(--font-mono);
-  font-size: 1.5rem;
+  font-size: 2.1rem;
   font-weight: 700;
-  margin-bottom: 0.5rem;
+  letter-spacing: -0.02em;
+  margin-bottom: 0.6rem;
+  color: var(--text);
 }
 
 .subtitle {
   color: var(--text-dim);
-  font-size: 0.9rem;
-  margin-bottom: 2rem;
+  font-size: 1rem;
+  margin-bottom: 2.5rem;
 }
 
 input,
 button {
   font-family: var(--font);
-  font-size: 0.9rem;
+  font-size: 1rem;
+}
+
+input {
+  color: var(--text);
+}
+
+input::placeholder {
+  color: var(--text-dim);
+  opacity: 0.7;
 }
 
 .search-bar {
   display: flex;
-  gap: 0.5rem;
-  margin-bottom: 3rem;
+  gap: 0.75rem;
+  margin-bottom: 3.5rem;
+  flex-wrap: wrap;
 }
 
 .search-bar input {
   flex: 1;
-  padding: 0.75rem 1rem;
+  min-width: 220px;
+  padding: 1rem 1.15rem;
   border: 1.5px solid var(--border);
   border-radius: var(--radius);
-  background: var(--card-bg);
+  background: var(--bg-glass);
+  backdrop-filter: blur(10px) saturate(1.2);
+  -webkit-backdrop-filter: blur(10px) saturate(1.2);
   font-family: var(--font-mono);
-  font-size: 0.85rem;
+  font-size: 0.95rem;
   outline: none;
-  transition: border-color 0.15s;
+  transition: border-color 0.15s, background 0.15s;
 }
 
 .search-bar input:focus {
   border-color: var(--accent);
+  background: var(--bg-glass-hover);
 }
 
 .search-bar button,
 .btn {
-  padding: 0.75rem 1.25rem;
-  border: 1.5px solid var(--text);
+  padding: 0.9rem 1.5rem;
+  border: 1.5px solid var(--accent);
   border-radius: var(--radius);
-  background: var(--text);
-  color: #fff;
+  background: var(--accent);
+  color: #0d1117;
   font-family: var(--font-mono);
-  font-size: 0.8rem;
+  font-size: 0.9rem;
+  font-weight: 700;
   text-transform: lowercase;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
+  transition: background 0.15s, border-color 0.15s, transform 0.05s;
   white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
 }
 
 .search-bar button:hover,
 .btn:hover {
-  background: #333;
-  border-color: #333;
+  background: var(--accent-dim);
+  border-color: var(--accent-dim);
+}
+
+.search-bar button:active,
+.btn:active {
+  transform: translateY(1px);
 }
 
 .btn-outline {
-  background: transparent;
+  background: var(--bg-glass);
+  backdrop-filter: blur(10px) saturate(1.2);
+  -webkit-backdrop-filter: blur(10px) saturate(1.2);
   color: var(--text);
+  border-color: var(--border);
+  font-weight: 600;
 }
 
 .btn-outline:hover {
-  background: var(--text);
-  color: #fff;
+  background: var(--bg-glass-hover);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .example-repos {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-bottom: 1.5rem;
+  gap: 0.65rem;
+  margin-bottom: 2rem;
 }
 
 .example-repos a {
   font-family: var(--font-mono);
-  font-size: 0.8rem;
+  font-size: 0.9rem;
   color: var(--text-dim);
-  padding: 0.35rem 0.75rem;
-  border: 1px solid var(--border);
+  padding: 0.5rem 0.95rem;
+  border: 1px solid var(--border-soft);
+  background: var(--bg-glass);
+  backdrop-filter: blur(8px) saturate(1.1);
+  -webkit-backdrop-filter: blur(8px) saturate(1.1);
   border-radius: 100px;
   transition: all 0.15s;
 }
 
 .example-repos a:hover {
-  color: var(--text);
-  border-color: var(--text);
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--bg-glass-hover);
 }
 
 .card {
-  background: var(--card-bg);
-  border: 1px solid var(--border);
+  background: var(--bg-glass);
+  backdrop-filter: blur(12px) saturate(1.3);
+  -webkit-backdrop-filter: blur(12px) saturate(1.3);
+  border: 1px solid var(--border-soft);
   border-radius: var(--radius);
-  padding: 1.25rem 1.5rem;
-  margin-bottom: 0.75rem;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  padding: 1.5rem 1.75rem;
+  margin-bottom: 1rem;
+  transition: border-color 0.15s, background 0.15s, transform 0.05s;
 }
 
 .card:hover {
-  border-color: #ccc;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  border-color: rgba(57, 211, 83, 0.4);
+  background: var(--bg-glass-hover);
 }
 
 .card-top {
@@ -190,13 +264,13 @@ button {
   justify-content: space-between;
   align-items: flex-start;
   gap: 1rem;
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.65rem;
 }
 
 .card-repo {
   font-family: var(--font-mono);
-  font-size: 0.9rem;
-  font-weight: 600;
+  font-size: 1.05rem;
+  font-weight: 700;
   color: var(--text);
   text-decoration: none;
   transition: color 0.15s;
@@ -205,13 +279,15 @@ button {
 .card-repo:hover {
   color: var(--accent);
   text-decoration: underline;
+  text-decoration-color: var(--accent);
+  text-underline-offset: 3px;
 }
 
 .card-desc {
   color: var(--text-dim);
-  font-size: 0.85rem;
-  line-height: 1.5;
-  margin-bottom: 0.75rem;
+  font-size: 0.95rem;
+  line-height: 1.55;
+  margin-bottom: 0.9rem;
 }
 
 .card-meta {
@@ -223,56 +299,73 @@ button {
 
 .badge {
   font-family: var(--font-mono);
-  font-size: 0.7rem;
-  padding: 0.2rem 0.55rem;
+  font-size: 0.78rem;
+  padding: 0.3rem 0.65rem;
   border-radius: 100px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-soft);
   color: var(--text-dim);
+  background: rgba(255, 255, 255, 0.03);
 }
 
 .badge-lang {
-  background: #f0f0eb;
-  border-color: #e0e0d8;
-  color: #444;
+  background: rgba(57, 211, 83, 0.1);
+  border-color: rgba(57, 211, 83, 0.25);
+  color: var(--accent);
+}
+
+.badge-shared-lang {
+  background: rgba(57, 211, 83, 0.18);
+  border-color: rgba(57, 211, 83, 0.4);
+  color: var(--accent);
+}
+
+.badge-shared-topics {
+  background: rgba(88, 166, 255, 0.12);
+  border-color: rgba(88, 166, 255, 0.3);
+  color: #79c0ff;
 }
 
 .pill {
-  font-size: 0.7rem;
-  padding: 0.2rem 0.55rem;
+  font-size: 0.78rem;
+  padding: 0.3rem 0.65rem;
   border-radius: 100px;
-  background: #f5f5f0;
+  background: rgba(255, 255, 255, 0.04);
   color: var(--text-dim);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-soft);
 }
 
 .stars {
   font-family: var(--font-mono);
-  font-size: 0.75rem;
-  color: var(--text-dim);
+  font-size: 0.85rem;
+  color: var(--accent);
   margin-left: auto;
+  white-space: nowrap;
 }
 
 .score-dot {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
   flex-shrink: 0;
+  box-shadow: 0 0 0 2px rgba(57, 211, 83, 0.15);
 }
 
 .score-dot.high {
-  background: var(--green);
+  background: var(--accent);
 }
 .score-dot.medium {
   background: var(--orange);
+  box-shadow: 0 0 0 2px rgba(240, 136, 62, 0.15);
 }
 .score-dot.low {
   background: var(--red);
+  box-shadow: 0 0 0 2px rgba(248, 81, 73, 0.15);
 }
 
 .actions {
   display: flex;
-  gap: 0.5rem;
-  margin: 2rem 0 1rem;
+  gap: 0.75rem;
+  margin: 2.5rem 0 1.25rem;
   flex-wrap: wrap;
 }
 
@@ -281,7 +374,7 @@ button {
   padding: 4rem 0;
   color: var(--text-dim);
   font-family: var(--font-mono);
-  font-size: 0.85rem;
+  font-size: 0.95rem;
 }
 
 .error {
@@ -289,14 +382,37 @@ button {
   padding: 4rem 0;
   color: var(--red);
   font-family: var(--font-mono);
-  font-size: 0.85rem;
+  font-size: 0.95rem;
 }
 
 .section-label {
   font-family: var(--font-mono);
-  font-size: 0.7rem;
+  font-size: 0.78rem;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   color: var(--text-dim);
-  margin-bottom: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+@media (max-width: 720px) {
+  main {
+    padding: 0 1.25rem 4rem;
+  }
+  h1 {
+    font-size: 1.7rem;
+  }
+  nav {
+    padding: 1.25rem 0;
+    margin-bottom: 2rem;
+  }
+  .card {
+    padding: 1.15rem 1.25rem;
+  }
+  .search-bar input {
+    padding: 0.85rem 1rem;
+  }
+  .search-bar button,
+  .btn {
+    padding: 0.8rem 1.2rem;
+  }
 }

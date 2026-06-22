@@ -22,6 +22,80 @@ import "../styles/global.css";
       media="print"
       onload="this.media='all'"
     />
+    <script is:inline>
+      (function () {
+        var STEPS = ["#0d1117", "#0e4429", "#006d32", "#26a641", "#39d353"];
+        var WEIGHTS = [55, 18, 12, 9, 6];
+        var CELL = 14;
+        var resizeTimer = null;
+
+        function pickShade() {
+          var r = Math.random() * 100;
+          var acc = 0;
+          for (var i = 0; i < WEIGHTS.length; i++) {
+            acc += WEIGHTS[i];
+            if (r < acc) return STEPS[i];
+          }
+          return STEPS[0];
+        }
+
+        function generate() {
+          var old = document.getElementById("commit-grid");
+          if (old) old.remove();
+          var w = window.innerWidth;
+          var h = window.innerHeight;
+          var cols = Math.ceil(w / CELL) + 1;
+          var rows = Math.ceil(h / CELL) + 1;
+          var parts = [];
+          parts.push(
+            '<svg xmlns="http://www.w3.org/2000/svg" width="',
+            w,
+            '" height="',
+            h,
+            '" viewBox="0 0 ',
+            w,
+            ' ',
+            h,
+            '" shape-rendering="crispEdges" preserveAspectRatio="xMidYMid slice">'
+          );
+          for (var y = 0; y < rows; y++) {
+            for (var x = 0; x < cols; x++) {
+              parts.push(
+                '<rect x="',
+                x * CELL,
+                '" y="',
+                y * CELL,
+                '" width="',
+                CELL,
+                '" height="',
+                CELL,
+                '" fill="',
+                pickShade(),
+                '"/>'
+              );
+            }
+          }
+          parts.push("</svg>");
+          var wrap = document.createElement("div");
+          wrap.innerHTML = parts.join("");
+          var svg = wrap.firstChild;
+          svg.id = "commit-grid";
+          document.body.appendChild(svg);
+        }
+
+        function schedule() {
+          if (resizeTimer) clearTimeout(resizeTimer);
+          resizeTimer = setTimeout(generate, 200);
+        }
+
+        if (document.readyState === "loading") {
+          document.addEventListener("DOMContentLoaded", generate);
+        } else {
+          generate();
+        }
+        window.addEventListener("resize", schedule);
+      })();
+    </script>
   </head>
   <body>
     <main>
