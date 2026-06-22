@@ -119,19 +119,20 @@ import "../styles/global.css";
             }
           },
           function (c, r, cols, rows) {
+            var minDim = Math.min(cols, rows);
             var cx = cols / 2, cy = rows / 2;
             var noise = makeNoise(r);
             for (var y = 0; y < rows; y++) for (var x = 0; x < cols; x++) {
-              var dx = x - cx, dy = y - cy;
+              var dx = (x - cx) / minDim, dy = (y - cy) / minDim;
               var dist = Math.sqrt(dx * dx + dy * dy);
               var angle = Math.atan2(dy, dx);
-              var logR = Math.log(1 + dist * 0.15);
-              var spiral = (Math.sin(angle * 2.5 + logR * 6) * 0.5 + 0.5);
-              var armFade = clamp(1 - dist / (Math.max(cols, rows) * 0.45), 0, 1);
-              var arm = spiral * armFade * 0.55;
+              var logR = Math.log(1 + dist * 2.5);
+              var spiral = (Math.sin(angle * 2.5 + logR * 5) * 0.5 + 0.5);
+              var armFade = clamp(1 - dist * 1.8, 0, 1);
+              var arm = spiral * armFade * 0.6;
               var n = noise(x * 0.12, y * 0.12);
-              var star = (n > 0.87) ? 0.7 + (n - 0.87) * 5 : 0;
-              this.push(clamp(arm + star * 0.6, 0, 1));
+              var star = (n > 0.86) ? 0.7 + (n - 0.86) * 6 : 0;
+              this.push(clamp(arm + star * 0.65, 0, 1));
             }
           },
           function (c, r, cols, rows) {
@@ -176,16 +177,17 @@ import "../styles/global.css";
             }
           },
           function (c, r, cols, rows) {
-            var cx = cols * (0.2 + r() * 0.6);
-            var cy = rows * (0.2 + r() * 0.6);
+            var minDim = Math.min(cols, rows);
+            var cx = cols * (0.3 + r() * 0.4);
+            var cy = rows * (0.3 + r() * 0.4);
             for (var y = 0; y < rows; y++) for (var x = 0; x < cols; x++) {
-              var dx = x - cx, dy = y - cy;
+              var dx = (x - cx) / minDim, dy = (y - cy) / minDim;
               var dist = Math.sqrt(dx * dx + dy * dy);
-              var w1 = Math.sin(dist * 0.6) * 0.5 + 0.5;
-              var w2 = Math.sin(dist * 0.3 + 1.5) * 0.3;
-              var w3 = Math.sin(dist * 0.15 + 3) * 0.2;
+              var w1 = Math.sin(dist * 8) * 0.5 + 0.5;
+              var w2 = Math.sin(dist * 4 + 1.5) * 0.3;
+              var w3 = Math.sin(dist * 2 + 3) * 0.2;
               var wave = (w1 + w2 + w3) / 1.5;
-              var fade = 1 - Math.min(1, dist / (Math.max(cols, rows) * 0.65));
+              var fade = 1 - Math.min(1, dist * 1.5);
               this.push(clamp(wave * fade, 0, 1));
             }
           },
@@ -223,7 +225,8 @@ import "../styles/global.css";
             }
           },
           function (c, r, cols, rows) {
-            var size = 3.5;
+            var minDim = Math.min(cols, rows);
+            var size = Math.max(2.5, minDim / 24);
             for (var y = 0; y < rows; y++) for (var x = 0; x < cols; x++) {
               var row = Math.floor(y / (size * 1.5));
               var isOddRow = row % 2;
@@ -232,13 +235,14 @@ import "../styles/global.css";
               var dx = x - hx, dy = y - hy;
               var dist = Math.sqrt(dx * dx + dy * dy);
               var v = clamp(1 - dist / size, 0, 1);
-              if (dist > size * 0.65 && dist < size * 0.8) v = Math.max(v, 0.55);
+              if (dist > size * 0.65 && dist < size * 0.82) v = Math.max(v, 0.6);
               this.push(v);
             }
           },
           function (c, r, cols, rows) {
+            var minDim = Math.min(cols, rows);
             var cx = cols / 2, cy = rows / 2;
-            var maxR = Math.min(cols, rows) * 0.45;
+            var maxR = minDim * 0.45;
             var nPoints = 60;
             var points = [];
             for (var i = 0; i < nPoints; i++) {
@@ -254,28 +258,29 @@ import "../styles/global.css";
                 if (d2 < minD2) minD2 = d2;
               }
               var dist = Math.sqrt(minD2);
-              this.push(clamp(1 - dist / 1.8, 0, 1));
+              this.push(clamp(1 - dist / (minDim * 0.035), 0, 1));
             }
           },
           function (c, r, cols, rows) {
+            var minDim = Math.min(cols, rows);
             var noise = makeNoise(r);
-            var cx = cols * (0.25 + r() * 0.5);
-            var cy = rows * (0.25 + r() * 0.5);
+            var cx = cols * (0.3 + r() * 0.4);
+            var cy = rows * (0.3 + r() * 0.4);
             for (var y = 0; y < rows; y++) for (var x = 0; x < cols; x++) {
-              var dx = x - cx, dy = y - cy;
+              var dx = (x - cx) / minDim, dy = (y - cy) / minDim;
               var dist = Math.sqrt(dx * dx + dy * dy);
-              var n = noise(x * 0.1, y * 0.1) * 6;
+              var n = noise(x * 0.1, y * 0.1) * 0.15;
               var d = dist + n;
-              var contour = Math.abs(Math.sin(d * 0.45));
-              var v = contour < 0.15 ? 0.7 : 0;
+              var contour = Math.abs(Math.sin(d * 12));
+              var v = contour < 0.18 ? 0.75 : 0;
               v *= 0.8 + 0.2 * noise(x * 0.3, y * 0.3);
-              v *= 1 - Math.min(1, dist / (Math.max(cols, rows) * 0.55));
+              v *= 1 - Math.min(1, dist * 1.6);
               this.push(clamp(v, 0, 1));
             }
           }
         ];
 
-        var CELLS = [16, 12, 14, 14, 20, 10, 14, 12, 10, 18, 8, 12];
+        var BASE_CELLS = [16, 12, 14, 14, 20, 10, 14, 12, 10, 18, 8, 12];
         var WEIGHTS = [55, 18, 12, 9, 6];
 
         function pickClass(v) {
@@ -285,14 +290,31 @@ import "../styles/global.css";
           return 0;
         }
 
+        function computeCell(patternIndex, vw, vh) {
+          var base = BASE_CELLS[patternIndex];
+          var ref = Math.min(vw, vh);
+          var scale = Math.max(0.7, Math.min(1.5, ref / 700));
+          return Math.max(7, Math.round(base * scale));
+        }
+
+        function fallbackGradient(rows, cols) {
+          var v = [];
+          for (var y = 0; y < rows; y++) {
+            for (var x = 0; x < cols; x++) {
+              v.push((1 - y / rows) * 0.5);
+            }
+          }
+          return v;
+        }
+
         var currentArt = -1;
 
         function renderSVG(values, cols, rows, cell) {
           var w = window.innerWidth, h = window.innerHeight;
           var parts = [];
-          parts.push('<svg xmlns="http://www.w3.org/2000/svg" width="', w, '" height="', h,
-            '" viewBox="0 0 ', w, ' ', h,
-            '" shape-rendering="crispEdges" preserveAspectRatio="xMidYMid slice">');
+          parts.push('<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%"',
+            ' viewBox="0 0 ', w, ' ', h,
+            '" preserveAspectRatio="xMidYMid slice" shape-rendering="crispEdges">');
           for (var y = 0; y < rows; y++) {
             for (var x = 0; x < cols; x++) {
               var cls = pickClass(values[y * cols + x]);
@@ -308,35 +330,49 @@ import "../styles/global.css";
           var old = document.getElementById("commit-grid");
           if (old) old.remove();
 
-          var seed = Math.floor(Math.random() * 2147483647);
-          var rand = mulberry32(seed);
-          var pi = (patternIndex === undefined || patternIndex < 0)
-            ? Math.floor(rand() * patterns.length) : patternIndex;
+          var w = Math.max(1, window.innerWidth);
+          var h = Math.max(1, window.innerHeight);
+          var pi = (patternIndex === undefined || patternIndex === null || patternIndex < 0)
+            ? Math.floor(Math.random() * patterns.length) : patternIndex;
           if (pi >= patterns.length) pi = 0;
           currentArt = pi;
 
-          var cell = CELLS[pi];
-          var w = window.innerWidth, h = window.innerHeight;
+          var cell = computeCell(pi, w, h);
           var cols = Math.ceil(w / cell) + 1;
           var rows = Math.ceil(h / cell) + 1;
           var values = [];
-          patterns[pi].call(values, null, rand, cols, rows);
+          try {
+            var seed = Math.floor(Math.random() * 2147483647);
+            var rand = mulberry32(seed);
+            patterns[pi].call(values, null, rand, cols, rows);
+          } catch (err) {
+            values = fallbackGradient(rows, cols);
+          }
+          if (!values || values.length !== rows * cols) {
+            values = fallbackGradient(rows, cols);
+          }
 
           var wrap = document.createElement("div");
           wrap.innerHTML = renderSVG(values, cols, rows, cell);
           var svg = wrap.firstChild;
-          svg.id = "commit-grid";
-          document.body.appendChild(svg);
+          if (svg) {
+            svg.id = "commit-grid";
+            document.body.appendChild(svg);
+          }
           updateArtPickerActive();
         }
 
         function generatePreview(patternIndex, size) {
           size = size || 8;
-          var seed = patternIndex * 2654435761 + 42;
-          var rand = mulberry32(seed);
           var cell = Math.max(6, Math.floor(72 / size));
           var values = [];
-          patterns[patternIndex].call(values, null, rand, size, size);
+          try {
+            var seed = patternIndex * 2654435761 + 42;
+            var rand = mulberry32(seed);
+            patterns[patternIndex].call(values, null, rand, size, size);
+          } catch (e) {
+            values = fallbackGradient(size, size);
+          }
           return renderSVG(values, size, size, cell);
         }
 
@@ -367,52 +403,18 @@ import "../styles/global.css";
           }
         }
 
-        var resizeTimer = null;
-        function schedule() {
-          if (resizeTimer) clearTimeout(resizeTimer);
-          resizeTimer = setTimeout(function () { generate(currentArt); }, 200);
-        }
-
-        var savedArt = null;
-        try {
-          var raw = localStorage.getItem("rr-art");
-          if (raw !== null) savedArt = parseInt(raw);
-          if (isNaN(savedArt)) savedArt = -1;
-        } catch (e) { savedArt = -1; }
-
-        buildArtPicker();
-
-        if (document.readyState === "loading") {
-          document.addEventListener("DOMContentLoaded", function () { generate(savedArt); });
-        } else {
-          generate(savedArt);
-        }
-        window.addEventListener("resize", schedule);
-
-        window.addEventListener("DOMContentLoaded", function () {
+        function attachArtPickerHandlers() {
           var btn = document.getElementById("art-picker-btn");
           var panel = document.getElementById("art-picker-panel");
           if (!btn || !panel) return;
-
-          function open() {
-            panel.classList.add("open");
-            btn.setAttribute("aria-expanded", "true");
-          }
-          function close() {
-            panel.classList.remove("open");
-            btn.setAttribute("aria-expanded", "false");
-          }
-          function toggle() {
-            if (panel.classList.contains("open")) close();
-            else open();
-          }
-
+          function open() { panel.classList.add("open"); btn.setAttribute("aria-expanded", "true"); }
+          function close() { panel.classList.remove("open"); btn.setAttribute("aria-expanded", "false"); }
+          function toggle() { if (panel.classList.contains("open")) close(); else open(); }
           btn.addEventListener("click", function (e) { e.stopPropagation(); toggle(); });
           document.addEventListener("click", function (e) {
             if (!panel.contains(e.target) && e.target !== btn) close();
           });
           document.addEventListener("keydown", function (e) { if (e.key === "Escape") close(); });
-
           panel.addEventListener("click", function (e) {
             var opt = e.target.closest(".art-option");
             if (!opt) return;
@@ -421,7 +423,33 @@ import "../styles/global.css";
             generate(idx);
             close();
           });
-        });
+        }
+
+        var savedArt = -1;
+        try {
+          var raw = localStorage.getItem("rr-art");
+          var p = parseInt(raw);
+          if (!isNaN(p) && p >= 0 && p < patterns.length) savedArt = p;
+        } catch (e) {}
+
+        var resizeTimer = null;
+        function schedule() {
+          if (resizeTimer) clearTimeout(resizeTimer);
+          resizeTimer = setTimeout(function () { generate(currentArt); }, 200);
+        }
+
+        function init() {
+          buildArtPicker();
+          attachArtPickerHandlers();
+          generate(savedArt);
+          window.addEventListener("resize", schedule);
+        }
+
+        if (document.readyState === "loading") {
+          document.addEventListener("DOMContentLoaded", init);
+        } else {
+          init();
+        }
       })();
     </script>
   </head>
@@ -455,6 +483,7 @@ import "../styles/global.css";
       </nav>
       <slot />
     </main>
+    <div class="grid-vignette" aria-hidden="true"></div>
     <script is:inline>
       (function () {
         var btn = document.getElementById("theme-toggle");

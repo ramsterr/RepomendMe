@@ -78,17 +78,20 @@ body {
   min-height: 100vh;
 }
 
+html {
+  background-color: var(--bg);
+  transition: background-color 0.3s ease;
+}
+
 body {
   font-family: var(--font);
   font-size: 1.05rem;
   line-height: 1.6;
-  background-color: var(--bg);
   color: var(--text);
   min-height: 100vh;
   cursor: url("data:image/svg+xml,%3Csvg width='24' height='24' viewBox='0 0 24 24' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='12' cy='12' r='9' stroke='%23ffffff' stroke-width='2'/%3E%3Ccircle cx='12' cy='12' r='3' fill='%23ffffff'/%3E%3C/svg%3E") 12 12, auto;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 [data-theme="light"] body {
@@ -100,12 +103,17 @@ body {
   inset: 0;
   width: 100vw;
   height: 100vh;
-  z-index: -1;
+  z-index: 0;
   pointer-events: none;
   display: block;
   opacity: 0;
   animation: gridFade 600ms ease-out 80ms forwards;
-  transition: opacity 0.2s ease;
+  transition: opacity 0.3s ease;
+}
+
+main {
+  position: relative;
+  z-index: 1;
 }
 
 #commit-grid rect {
@@ -343,8 +351,12 @@ input::placeholder {
   border-radius: var(--radius);
   padding: 1.5rem 1.75rem;
   margin-bottom: 1rem;
-  box-shadow: var(--card-shadow);
-  transition: border-color 0.15s, background 0.15s, transform 0.05s;
+  box-shadow: var(--card-shadow), 0 0 40px rgba(57, 211, 83, 0.04);
+  transition: border-color 0.15s, background 0.15s, transform 0.05s, box-shadow 0.2s;
+}
+
+.card:hover {
+  box-shadow: var(--card-shadow), 0 0 48px rgba(57, 211, 83, 0.08);
 }
 
 .card:hover {
@@ -652,4 +664,17 @@ input::placeholder {
   font-size: 1.8rem;
   color: var(--bg);
   font-weight: 700;
+}
+
+.grid-vignette {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 50% 35%, transparent 0%, transparent 40%, rgba(0, 0, 0, 0.25) 100%);
+  transition: background 0.3s ease;
+}
+
+[data-theme="light"] .grid-vignette {
+  background: radial-gradient(ellipse at 50% 35%, transparent 0%, transparent 40%, rgba(0, 0, 0, 0.08) 100%);
 }
