@@ -25,7 +25,7 @@ const API = import.meta.env.PUBLIC_API_URL || "http://localhost:8001";
   var _fc = {};
   function cachedFetch(url, opts) {
     opts = opts || {};
-    var timeoutMs = opts.timeout || 8000;
+    var timeoutMs = opts.timeout || 15000;
     var onSlow = opts.onSlow;
     var now = Date.now();
     if (_fc[url] && now - _fc[url].ts < 300000) {
@@ -71,6 +71,20 @@ const API = import.meta.env.PUBLIC_API_URL || "http://localhost:8001";
     });
   }
 
+  function cachedFetchWithRetry(url, opts, retries) {
+    retries = retries || 1;
+    return cachedFetch(url, opts).catch(function (err) {
+      if (retries > 0) {
+        return new Promise(function (resolve) {
+          setTimeout(function () {
+            resolve(cachedFetchWithRetry(url, opts, retries - 1));
+          }, 2000);
+        });
+      }
+      throw err;
+    });
+  }
+
   function fmt(n) {
     if (n >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, "") + "k";
     return String(n);
@@ -106,7 +120,7 @@ const API = import.meta.env.PUBLIC_API_URL || "http://localhost:8001";
     var activeCard = document.querySelector('.topic-card[data-topic="' + topic + '"]');
     if (activeCard) activeCard.classList.add("active");
 
-    cachedFetch(API + "/popular?topic=" + encodeURIComponent(topic) + "&limit=10", {
+    cachedFetchWithRetry(API + "/popular?topic=" + encodeURIComponent(topic) + "&limit=10", {
       timeout: 12000,
       onSlow: function () {
         var d = document.getElementById("topic-detail");
@@ -141,7 +155,7 @@ const API = import.meta.env.PUBLIC_API_URL || "http://localhost:8001";
     if (!el) return;
     el.innerHTML = '<div class="loading" id="topics-loading">loading topics…</div>';
 
-    cachedFetch(API + "/topics?limit=40", {
+    cachedFetchWithRetry(API + "/topics?limit=40", {
       onSlow: function () {
         var tl = document.getElementById("topics-loading");
         if (tl) tl.textContent = "still loading…";
@@ -201,7 +215,7 @@ const API = import.meta.env.PUBLIC_API_URL || "http://localhost:8001";
 
   function exploreRandom() {
     var seed = Math.floor(Math.random() * 99999);
-    cachedFetch(API + "/explore?seed=" + seed + "&limit=1")
+    cachedFetchWithRetry(API + "/explore?seed=" + seed + "&limit=1")
       .then(function (data) {
         window.location.href = "/repo/" + data.source_repo;
       })

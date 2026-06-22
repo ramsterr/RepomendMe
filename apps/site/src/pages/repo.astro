@@ -1,13 +1,11 @@
 ---
-import Base from "../../../layouts/Base.astro";
+import Base from "../layouts/Base.astro";
 
-const { owner, name } = Astro.params;
-const repo = `${owner}/${name}`;
 const API = import.meta.env.PUBLIC_API_URL || "http://localhost:8001";
 ---
 
 <Base>
-  <h1>{repo}</h1>
+  <h1 id="page-title">loading...</h1>
   <p class="subtitle">
     <a href="/" style="color: var(--accent-dim);">&larr; back</a>
   </p>
@@ -26,7 +24,7 @@ const API = import.meta.env.PUBLIC_API_URL || "http://localhost:8001";
   </div>
 
   <p class="section-label" id="results-header" style="margin-top:0.3rem;">
-    <span id="results-label">loading…</span>
+    <span id="results-label">loading...</span>
   </p>
 
   <div class="actions">
@@ -36,15 +34,34 @@ const API = import.meta.env.PUBLIC_API_URL || "http://localhost:8001";
   </div>
 
   <div id="results">
-    <div class="loading">searching for similar repos…</div>
+    <div class="loading">searching for similar repos...</div>
   </div>
 </Base>
 
-<script define:vars={{ API, repo }}>
+<script define:vars={{ API }}>
+
+  // Extract repo from the URL pathname: /repo/owner/name -> owner/name
+  // Falls back to ?repo= query param for local dev (astro dev doesn't
+  // have Vercel's rewrite rules).
+  function getRepoFromPath() {
+    var params = new URLSearchParams(window.location.search);
+    var qp = params.get("repo");
+    if (qp) return qp;
+    var path = window.location.pathname;
+    var match = path.match(/^\/repo\/(.+)/);
+    if (match) return match[1].replace(/\/+$/, "");
+    return "";
+  }
+
+  var repo = getRepoFromPath();
+  if (repo) {
+    document.getElementById("page-title").textContent = repo;
+  }
+
   var _fc = {};
   function cachedFetch(url, opts) {
     opts = opts || {};
-    var timeoutMs = opts.timeout || 8000;
+    var timeoutMs = opts.timeout || 15000;
     var onSlow = opts.onSlow;
     var now = Date.now();
     if (_fc[url] && now - _fc[url].ts < 300000) {
@@ -84,7 +101,21 @@ const API = import.meta.env.PUBLIC_API_URL || "http://localhost:8001";
         throw new Error("request timed out after " + (timeoutMs / 1000) + "s");
       }
       if (err && err.message && /Failed to fetch|NetworkError|Load failed/i.test(err.message)) {
-        throw new Error("API is unreachable — is the backend running on " + API + "?");
+        throw new Error("API is unreachable &#8212; is the backend running on " + API + "?");
+      }
+      throw err;
+    });
+  }
+
+  function cachedFetchWithRetry(url, opts, retries) {
+    retries = retries || 1;
+    return cachedFetch(url, opts).catch(function (err) {
+      if (retries > 0) {
+        return new Promise(function (resolve) {
+          setTimeout(function () {
+            resolve(cachedFetchWithRetry(url, opts, retries - 1));
+          }, 2000);
+        });
       }
       throw err;
     });
@@ -171,20 +202,26 @@ const API = import.meta.env.PUBLIC_API_URL || "http://localhost:8001";
     var headerEl = document.getElementById("results-label");
     var slowShown = false;
 
+    if (!repo) {
+      headerEl.textContent = "";
+      resultsEl.innerHTML = '<div class="error">no repo specified &#8212; go <a href="/">home</a> to search</div>';
+      return;
+    }
+
     var params = "repo=" + encodeURIComponent(repo) + "&limit=12";
     if (currentSeed !== undefined) params += "&seed=" + currentSeed;
     if (currentTags.length > 0) params += "&tags=" + encodeURIComponent(currentTags.join(","));
 
-    headerEl.textContent = "loading…";
-    resultsEl.innerHTML = '<div class="loading" id="results-loading">searching for similar repos…</div>';
+    headerEl.textContent = "loading...";
+    resultsEl.innerHTML = '<div class="loading" id="results-loading">searching for similar repos...</div>';
 
-    cachedFetch(API + "/recommend?" + params, {
+    cachedFetchWithRetry(API + "/recommend?" + params, {
       onSlow: function () {
         slowShown = true;
         var el = document.getElementById("results-loading");
-        if (el) el.textContent = "still searching… (cold start can take a few seconds)";
+        if (el) el.textContent = "still searching... (cold start can take a few seconds)";
       },
-    })
+    }, 1)
       .then(function (data) {
         var repos = data.repos || [];
         headerEl.textContent = repos.length + " recommendations" + (currentSeed !== undefined ? " (seed: " + currentSeed + ")" : "");

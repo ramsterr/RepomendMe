@@ -3,15 +3,36 @@
 ## What changed (since last deploy)
 
 **Backend (Render):**
+- `apps/mvp_api/src/reporelay_mvp_api/main.py` — in-memory recommendation cache (5 min TTL, 1000 max entries). Repeated requests for the same repo are instant.
 - `Dockerfile.api` — embedding model is now baked into the image. Cold starts no longer pay the 5-9s HuggingFace download.
 - `packages/mvp/src/reporelay_mvp/github.py` — GitHub search timeout cut from 15s → 5s.
 - `packages/mvp/src/reporelay_mvp/recommend.py` — disk-backed search cache (24h TTL) + skip GitHub search when DB pool already has ≥200 candidates.
 
 **Frontend (Vercel):**
-- `apps/site/src/pages/*` — every page's `cachedFetch` now has an 8s timeout via `AbortController`, a "still searching…" indicator that fires after 3s, and a retry button on every error state. No more silent hangs.
+- **`astro.config.mjs`** — switched from `output: "server"` → `output: "static"`. Pages are now pre-rendered at build time and served from Vercel's CDN — zero cold starts, zero serverless function lag.
+- **`vercel.json` (new)** — rewrite rule maps `/repo/owner/name` → `/repo.html` so dynamic repo URLs work without SSR.
+- **`apps/site/src/pages/repo.astro` (new)** — replaces the old `repo/[owner]/[name].astro` SSR page. Reads the repo name from `window.location.pathname` client-side.
+- Increased client-side fetch timeout to 15s and added 1 automatic retry after 2s.
 
 **Keepalive:**
 - `.github/workflows/ping.yml` — now also hits `/recommend?repo=fastapi/fastapi&limit=1&tags=python` so the embedding model is loaded into RAM between pings, not just on first real user request.
+
+## Architecture
+
+```
+Browser                          Vercel CDN (static)          Render (Docker)
+──────                          ──────────────────          ────────────────
+GET /              ────►  index.html  (<1ms, static)        
+GET /explore       ────►  explore.html (<1ms, static)       
+GET /repo/f/b      ────►  vercel.json rewrite ─► repo.html  
+                            │                                  GET /recommend?repo=f/b
+                            │    fetch("/recommend?...") ────►  (cached if warm)
+                            │    ◄──── JSON ────────────────
+                            │
+                          All pages render instantly.
+                          No serverless functions.
+                          No cold starts.
+```
 
 ## Deploy steps
 
@@ -20,8 +41,8 @@
 Render watches your repo and auto-rebuilds on push to the connected branch.
 
 ```bash
-git add Dockerfile.api packages/mvp/ .github/workflows/
-git commit -m "perf: bake model into image + faster search + client timeouts"
+git add apps/mvp_api/ .github/workflows/
+git commit -m "perf: add recommendation cache + static frontend"
 git push
 ```
 
@@ -39,16 +60,19 @@ Should return 200 in **under 1 second** on a warm container, **under 5 seconds**
 
 ### 2. Vercel (site)
 
-Vercel also auto-rebuilds on push. No env var changes needed — `PUBLIC_API_URL` is already set to the Render URL.
+Vercel also auto-rebuilds on push. The key env var is `PUBLIC_API_URL` — **must be set** to the Render URL in Vercel's project settings.
 
 ```bash
 # same push as above — Vercel picks it up automatically
 ```
 
+**Important**: After the deploy, visit the Vercel project dashboard → Settings → Environment Variables and verify `PUBLIC_API_URL` is set. If it's missing, the frontend will try to fetch from `localhost:8001` and fail.
+
 **Verify in browser:**
 1. Open the Vercel URL.
-2. Click any repo. The page should render in <100ms and recommendations should appear in <1s.
-3. If you see "still searching…" for more than 3 seconds, something is wrong — open DevTools → Network and check the `/recommend` request.
+2. The page should render immediately (<100ms from CDN). No more blank white screen.
+3. Recommendations should appear within a few seconds. If you see "still searching…" for more than 3 seconds, the API is likely cold — wait a moment and try again (or check that UptimeRobot is pinging the API).
+4. Try the URL directly: `https://reporelay-site.vercel.app/repo/facebook/react` — should show the page shell instantly, then load recommendations.
 
 ### 3. UptimeRobot (prevent cold starts entirely)
 
@@ -71,12 +95,14 @@ curl -w "\n%{http_code} in %{time_total}s\n" \
   "https://reporelay-mvp-api-0w1k.onrender.com/recommend?repo=fastapi/fastapi&limit=3"
 ```
 
-If the keepalive + UptimeRobot are working, this should still be **under 1 second**. If it's 5+ seconds, the model got unloaded — check the GitHub Actions tab to make sure the cron is firing.
+If the keepalive + UptimeRobot are working, this should still be **under 1 second** (the cache is warm from the keepalive). If it's 5+ seconds, the model got unloaded — check the GitHub Actions tab to make sure the cron is firing.
 
 ## If something goes wrong
 
 | Symptom | Fix |
 |---|---|
+| Vercel site shows blank / 404 for repo pages | `vercel.json` not deployed. Verify it's in `apps/site/` and committed. |
+| Frontend shows "API is unreachable" | `PUBLIC_API_URL` not set in Vercel env vars, or Render is down. |
 | Render build fails on `sentence_transformers` import | The `RUN python -c ...` step needs the package installed first. Make sure `uv sync` runs before the model download in the Dockerfile. |
 | Model still downloads on cold start | `HF_HOME` not set in the running container. Check the deployed env vars in Render. |
 | Vercel site shows "failed to load API" | `PUBLIC_API_URL` got unset. Vercel → Settings → Environment Variables. |
