@@ -258,40 +258,52 @@ async def quick_save(owner: str, name: str) -> int:
     Lightweight fetch: metadata + topics only. Returns in ~2s — enough for
     topic/language-based recommendations while README + deps are fetched
     in the background. Returns the repo id.
+
+    If the GitHub API is rate-limited, we create a skeleton DB row so the
+    recommendation pipeline can still run with whatever signals are available.
     """
     settings = get_mvp_settings()
     headers = _auth_headers(settings.github_token)
     timeout = httpx.Timeout(10.0, connect=5.0)
 
-    async with httpx.AsyncClient(base_url=GITHUB_API, headers=headers, timeout=timeout) as client:
-        metadata, topics = await asyncio.gather(
-            fetch_repo_metadata(client, owner, name),
-            fetch_topics(client, owner, name),
-        )
-        repo_id = int(metadata["id"])
-
-        language = metadata.get("language")
-        stars = int(metadata.get("stargazers_count") or 0)
-        full_name = f"{owner}/{name}"
-
-        session = await data.get_session()
-        try:
-            await data.upsert_repo(
-                session,
-                repo_id=repo_id,
-                owner=owner,
-                name=name,
-                full_name=full_name,
-                description=metadata.get("description"),
-                language=language,
-                topics=topics,
-                stars=stars,
-                dependencies=[],
+    try:
+        async with httpx.AsyncClient(base_url=GITHUB_API, headers=headers, timeout=timeout) as client:
+            metadata, topics = await asyncio.gather(
+                fetch_repo_metadata(client, owner, name),
+                fetch_topics(client, owner, name),
             )
-            await data.set_embedding(session, repo_id=repo_id, embedding=[0.0] * 384)
-            await session.commit()
-        finally:
-            await session.close()
+            repo_id = int(metadata["id"])
+            language = metadata.get("language")
+            stars = int(metadata.get("stargazers_count") or 0)
+            description = metadata.get("description")
+    except Exception as exc:
+        logger.warning("quick_save API call failed — creating skeleton row: %s", exc)
+        repo_id = abs(hash(f"{owner}/{name}")) % (10**9)
+        language = None
+        stars = 1
+        description = None
+        topics = []
+
+    full_name = f"{owner}/{name}"
+
+    session = await data.get_session()
+    try:
+        await data.upsert_repo(
+            session,
+            repo_id=repo_id,
+            owner=owner,
+            name=name,
+            full_name=full_name,
+            description=description,
+            language=language,
+            topics=topics,
+            stars=stars,
+            dependencies=[],
+        )
+        await data.set_embedding(session, repo_id=repo_id, embedding=[0.0] * 384)
+        await session.commit()
+    finally:
+        await session.close()
 
     logger.info("quick-saved %s/%s (id=%d)", owner, name, repo_id)
     return repo_id
