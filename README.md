@@ -191,7 +191,8 @@ GitHub API ──► Postgres + pgvector ──► Candidates ──► Features
 ```
 
 
-<img width="2880" height="1800" alt="image" src="https://github.com/user-attachments/assets/9c1a6172-3296-4c80-be95-26cc115b5485" />
+<img width="2880" height="1800" alt="image" src="https://github.com/user-attachments/assets/d5113a97-159a-467f-8273-18dabbdab74b" />
+
 
 
 ---
