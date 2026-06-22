@@ -24,7 +24,7 @@ jobs:
         run: uv python install 3.12
 
       - name: Install deps
-        run: uv sync --frozen
+        run: uv sync --frozen --extra embed
 
       - name: Run embedder
         run: uv run --package reporelay-mvp reporelay-mvp embed --limit 500 --concurrency 4
