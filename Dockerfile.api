@@ -24,7 +24,7 @@ ENV PATH="/app/.venv/bin:$PATH"
 # If all retries fail, the build still succeeds; the model downloads at
 # runtime on first request instead.
 RUN mkdir -p /app/.cache/huggingface && \
-    /app/.venv/bin/python -c "
+    /app/.venv/bin/python <<'PYEOF'
 import sys, time, traceback
 for attempt in range(3):
     try:
@@ -39,7 +39,7 @@ for attempt in range(3):
             print('Retrying in 30s...')
             time.sleep(30)
 print('WARNING: model pre-download failed — will download at runtime on first request')
-"
+PYEOF
 
 EXPOSE 8000
 
