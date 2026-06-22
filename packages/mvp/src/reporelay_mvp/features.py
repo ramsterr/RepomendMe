@@ -19,7 +19,6 @@ import math
 
 from reporelay_mvp.models import Features, Repo
 
-MAX_STARS = 500_000  # for popularity log scale
 EPS = 1e-9
 
 
@@ -51,12 +50,15 @@ def _jaccard(a: list[str], b: list[str]) -> float:
 
 
 def _popularity_sim(a: int, b: int) -> float:
-    log_a = math.log1p(max(a, 0))
-    log_b = math.log1p(max(b, 0))
-    log_max = math.log1p(MAX_STARS)
-    if log_max <= 0:
-        return 0.0
-    return 1.0 - abs(log_a - log_b) / log_max
+    """Log-scaled star comparison. Source's stars set the ceiling; candidate
+    gets full score if it meets or exceeds that level. Smaller repos with
+    fewer stars than the source are penalized gracefully on a log scale."""
+    log_a = math.log1p(max(a, 1))
+    log_b = math.log1p(max(b, 1))
+    if log_a <= 0:
+        return 0.5
+    ratio = min(log_b / log_a, 1.0)
+    return ratio
 
 
 def _clamp(value: float, lo: float = 0.0, hi: float = 1.0) -> float:
