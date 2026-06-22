@@ -40,7 +40,6 @@ import "../styles/global.css";
     </script>
     <script is:inline>
       (function () {
-        /* ── deterministic PRNG ── */
         function mulberry32(a) {
           return function () {
             a |= 0; a = (a + 0x6d2b79f5) | 0;
@@ -51,29 +50,22 @@ import "../styles/global.css";
           };
         }
 
-        /* ── helpers ── */
         function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
         function lerp(a, b, t) { return a + (b - a) * t; }
 
-        /* ── smooth noise (bilinear interpolation of random grid) ── */
         function makeNoise(rand) {
           var grid = [];
-          for (var i = 0; i < 256; i++) {
-            grid[i] = [];
-            for (var j = 0; j < 256; j++) grid[i][j] = rand();
-          }
+          for (var i = 0; i < 64; i++) { grid[i] = []; for (var j = 0; j < 64; j++) grid[i][j] = rand(); }
           return function (x, y) {
-            var xi = Math.floor(x) & 255, yi = Math.floor(y) & 255;
-            var xf = x - Math.floor(x),  yf = y - Math.floor(y);
-            var tl = grid[yi][xi], tr = grid[yi][(xi + 1) & 255];
-            var bl = grid[(yi + 1) & 255][xi], br = grid[(yi + 1) & 255][(xi + 1) & 255];
-            var sx = xf * xf * (3 - 2 * xf);
-            var sy = yf * yf * (3 - 2 * yf);
+            var xi = Math.floor(x) & 63, yi = Math.floor(y) & 63;
+            var xf = x - Math.floor(x), yf = y - Math.floor(y);
+            var tl = grid[yi][xi], tr = grid[yi][(xi + 1) & 63];
+            var bl = grid[(yi + 1) & 63][xi], br = grid[(yi + 1) & 63][(xi + 1) & 63];
+            var sx = xf * xf * (3 - 2 * xf), sy = yf * yf * (3 - 2 * yf);
             return lerp(lerp(tl, tr, sx), lerp(bl, br, sx), sy);
           };
         }
 
-        /* ── Voronoi seeds ── */
         function makeSeeds(rand, cols, rows, count) {
           var s = [];
           for (var i = 0; i < count; i++) s.push({ x: rand() * cols, y: rand() * rows });
@@ -89,150 +81,218 @@ import "../styles/global.css";
           return best;
         }
 
-        /* ── quantify (0-1 → class 0-4) ── */
-        function q(v) { var c = Math.floor(clamp(v, 0, 0.999) * 5); return c > 4 ? 4 : c; }
+        var ARTS = [
+          { name: "aurora",    icon: "✦" },
+          { name: "ocean",     icon: "≈" },
+          { name: "stars",     icon: "⋆" },
+          { name: "peaks",     icon: "⩘" },
+          { name: "gems",      icon: "◇" },
+          { name: "cracks",    icon: "⬡" },
+          { name: "ripples",   icon: "⊙" },
+          { name: "forest",    icon: "⫾" },
+          { name: "matrix",    icon: "⏐" },
+          { name: "comb",      icon: "⬢" },
+          { name: "bloom",     icon: "✿" },
+          { name: "contour",   icon: "〰" }
+        ];
 
-        /* ── pattern generators ── */
         var patterns = [
-          /* 0  Aurora Borealis  — cell 16 */
           function (c, r, cols, rows) {
             var noise = makeNoise(r);
-            for (var y = 0; y < rows; y++) {
-              for (var x = 0; x < cols; x++) {
-                var ny = y / rows;
-                var wave = Math.sin(x * 0.025 + noise(x * 0.03, y * 0.06) * 5) * 0.5 + 0.5;
-                var fade = 1 - ny * 0.85;
-                var shimmer = 0.65 + 0.35 * noise(x * 0.08 + 50, y * 0.04 + 30);
-                this.push(wave * fade * shimmer);
-              }
+            for (var y = 0; y < rows; y++) for (var x = 0; x < cols; x++) {
+              var ny = y / rows;
+              var wave = Math.sin(x * 0.025 + noise(x * 0.03, y * 0.06) * 5) * 0.5 + 0.5;
+              var fade = 1 - ny * 0.85;
+              var shimmer = 0.65 + 0.35 * noise(x * 0.08 + 50, y * 0.04 + 30);
+              this.push(wave * fade * shimmer);
             }
           },
-          /* 1  Ocean Depths  — cell 12 */
           function (c, r, cols, rows) {
-            for (var y = 0; y < rows; y++) {
-              for (var x = 0; x < cols; x++) {
-                var nx = x / cols, ny = y / rows;
-                var s1 = Math.sin(nx * 12 + ny * 2) * 0.5 + 0.5;
-                var s2 = Math.sin(nx * 7 - ny * 4 + 2) * 0.5 + 0.5;
-                var s3 = Math.sin(nx * 18 + ny * 6 + 5) * 0.5 + 0.5;
-                var depth = (s1 * 0.45 + s2 * 0.3 + s3 * 0.25) * (1 - ny * 0.7);
-                var foam = (ny < 0.12) ? 0.15 * (1 - ny / 0.12) : 0;
-                this.push(clamp(depth + foam, 0, 1));
-              }
+            for (var y = 0; y < rows; y++) for (var x = 0; x < cols; x++) {
+              var nx = x / cols, ny = y / rows;
+              var s1 = Math.sin(nx * 12 + ny * 2) * 0.5 + 0.5;
+              var s2 = Math.sin(nx * 7 - ny * 4 + 2) * 0.5 + 0.5;
+              var s3 = Math.sin(nx * 18 + ny * 6 + 5) * 0.5 + 0.5;
+              var depth = (s1 * 0.45 + s2 * 0.3 + s3 * 0.25) * (1 - ny * 0.7);
+              var foam = (ny < 0.12) ? 0.15 * (1 - ny / 0.12) : 0;
+              this.push(clamp(depth + foam, 0, 1));
             }
           },
-          /* 2  Starfield  — cell 14 */
           function (c, r, cols, rows) {
             var cx = cols / 2, cy = rows / 2;
             var noise = makeNoise(r);
-            for (var y = 0; y < rows; y++) {
-              for (var x = 0; x < cols; x++) {
-                var dx = x - cx, dy = y - cy;
-                var dist = Math.sqrt(dx * dx + dy * dy);
-                var angle = Math.atan2(dy, dx);
-                var logR = Math.log(1 + dist * 0.15);
-                var spiral = (Math.sin(angle * 2.5 + logR * 6) * 0.5 + 0.5);
-                var armFade = clamp(1 - dist / (Math.max(cols, rows) * 0.45), 0, 1);
-                var arm = spiral * armFade * 0.55;
-                var n = noise(x * 0.12, y * 0.12);
-                var star = (n > 0.87) ? 0.7 + (n - 0.87) * 5 : 0;
-                this.push(clamp(arm + star * 0.6, 0, 1));
-              }
+            for (var y = 0; y < rows; y++) for (var x = 0; x < cols; x++) {
+              var dx = x - cx, dy = y - cy;
+              var dist = Math.sqrt(dx * dx + dy * dy);
+              var angle = Math.atan2(dy, dx);
+              var logR = Math.log(1 + dist * 0.15);
+              var spiral = (Math.sin(angle * 2.5 + logR * 6) * 0.5 + 0.5);
+              var armFade = clamp(1 - dist / (Math.max(cols, rows) * 0.45), 0, 1);
+              var arm = spiral * armFade * 0.55;
+              var n = noise(x * 0.12, y * 0.12);
+              var star = (n > 0.87) ? 0.7 + (n - 0.87) * 5 : 0;
+              this.push(clamp(arm + star * 0.6, 0, 1));
             }
           },
-          /* 3  Mountain Ridges  — cell 14 */
           function (c, r, cols, rows) {
             var ridges = [];
             for (var i = 0; i < 5; i++) ridges.push({ x: r() * cols, h: 0.3 + r() * 0.6, w: 0.15 + r() * 0.25 });
-            for (var y = 0; y < rows; y++) {
-              for (var x = 0; x < cols; x++) {
-                var nx = x / cols, ny = y / rows;
-                var peak = 0;
-                for (var i = 0; i < ridges.length; i++) {
-                  var r2 = ridges[i];
-                  var nx2 = r2.x / cols;
-                  var d = Math.abs(nx - nx2) / r2.w;
-                  if (d < 1) {
-                    var h = r2.h * (1 - d * d);
-                    if (h > peak) peak = h;
-                  }
-                }
-                var base = (1 - ny) * 0.25;
-                var value = clamp(peak * 0.8 + base * 0.3, 0, 1);
-                var jitter = (r() - 0.5) * 0.08;
-                this.push(clamp(value + jitter, 0, 1));
+            for (var y = 0; y < rows; y++) for (var x = 0; x < cols; x++) {
+              var nx = x / cols, ny = y / rows;
+              var peak = 0;
+              for (var i = 0; i < ridges.length; i++) {
+                var r2 = ridges[i], nx2 = r2.x / cols;
+                var d = Math.abs(nx - nx2) / r2.w;
+                if (d < 1) { var h = r2.h * (1 - d * d); if (h > peak) peak = h; }
               }
+              var base = (1 - ny) * 0.25;
+              var value = clamp(peak * 0.8 + base * 0.3, 0, 1);
+              var jitter = (r() - 0.5) * 0.08;
+              this.push(clamp(value + jitter, 0, 1));
             }
           },
-          /* 4  Diamond Lattice  — cell 20 */
           function (c, r, cols, rows) {
-            for (var y = 0; y < rows; y++) {
-              for (var x = 0; x < cols; x++) {
-                var dx = Math.abs((x % 10) - 5);
-                var dy = Math.abs((y % 10) - 5);
-                var dist = dx + dy;
-                var value = clamp(1 - dist / 8, 0, 1);
-                var shimmer = 0.8 + 0.2 * (r() - 0.5);
-                this.push(clamp(value * shimmer, 0, 1));
-              }
+            for (var y = 0; y < rows; y++) for (var x = 0; x < cols; x++) {
+              var dx = Math.abs((x % 10) - 5), dy = Math.abs((y % 10) - 5);
+              var dist = dx + dy;
+              var value = clamp(1 - dist / 8, 0, 1);
+              var shimmer = 0.8 + 0.2 * (r() - 0.5);
+              this.push(clamp(value * shimmer, 0, 1));
             }
           },
-          /* 5  Cracked Earth / Voronoi  — cell 10 */
           function (c, r, cols, rows) {
             var seeds = makeSeeds(r, cols, rows, Math.floor((cols * rows) / 30));
             var maxD2 = 0;
-            for (var y = 0; y < rows; y++) {
-              for (var x = 0; x < cols; x++) {
-                var d2 = nearestDistSq(x, y, seeds);
-                if (d2 > maxD2) maxD2 = d2;
-              }
+            for (var y = 0; y < rows; y++) for (var x = 0; x < cols; x++) {
+              var d2 = nearestDistSq(x, y, seeds);
+              if (d2 > maxD2) maxD2 = d2;
             }
             if (maxD2 === 0) maxD2 = 1;
-            for (var y = 0; y < rows; y++) {
-              for (var x = 0; x < cols; x++) {
-                var d2 = nearestDistSq(x, y, seeds);
-                var nd = d2 / maxD2;
-                var v = 1 - nd * 1.3;
-                this.push(v < 0 ? 0 : v > 1 ? 1 : v);
-              }
+            for (var y = 0; y < rows; y++) for (var x = 0; x < cols; x++) {
+              var d2 = nearestDistSq(x, y, seeds);
+              var nd = d2 / maxD2;
+              var v = 1 - nd * 1.3;
+              this.push(v < 0 ? 0 : v > 1 ? 1 : v);
             }
           },
+          function (c, r, cols, rows) {
+            var cx = cols * (0.2 + r() * 0.6);
+            var cy = rows * (0.2 + r() * 0.6);
+            for (var y = 0; y < rows; y++) for (var x = 0; x < cols; x++) {
+              var dx = x - cx, dy = y - cy;
+              var dist = Math.sqrt(dx * dx + dy * dy);
+              var w1 = Math.sin(dist * 0.6) * 0.5 + 0.5;
+              var w2 = Math.sin(dist * 0.3 + 1.5) * 0.3;
+              var w3 = Math.sin(dist * 0.15 + 3) * 0.2;
+              var wave = (w1 + w2 + w3) / 1.5;
+              var fade = 1 - Math.min(1, dist / (Math.max(cols, rows) * 0.65));
+              this.push(clamp(wave * fade, 0, 1));
+            }
+          },
+          function (c, r, cols, rows) {
+            var noise = makeNoise(r);
+            for (var y = 0; y < rows; y++) for (var x = 0; x < cols; x++) {
+              var ny = y / rows, nx = x / cols;
+              var treeHeight = 0.4 + noise(x * 0.18, 0) * 0.5;
+              var treeTop = 1 - treeHeight;
+              var v;
+              if (ny < treeTop) {
+                var starN = noise(x * 0.5, y * 0.5);
+                v = starN > 0.93 ? 0.55 + (starN - 0.93) * 7 : 0;
+              } else {
+                var colMod = x % 4;
+                var distFromTrunk = Math.abs(colMod - 1.5);
+                var foliage = clamp(1 - distFromTrunk / 2.5, 0, 1) * 0.7;
+                var trunk = distFromTrunk < 0.5 ? 0.5 : 0;
+                var jitter = noise(x * 0.3, y * 0.3) * 0.2;
+                v = clamp(trunk + foliage + jitter, 0, 1) * clamp(1 - (ny - treeTop) * 0.3, 0, 1);
+              }
+              this.push(clamp(v, 0, 1));
+            }
+          },
+          function (c, r, cols, rows) {
+            var noise = makeNoise(r);
+            for (var y = 0; y < rows; y++) for (var x = 0; x < cols; x++) {
+              var nx = x / cols, ny = y / rows;
+              var colPhase = noise(nx * 4, 0) * 5;
+              var streamY = (ny * 8 + colPhase) % 1;
+              var v = 0;
+              if (streamY < 0.4) v = (1 - streamY / 0.4) * 0.9;
+              v *= 0.6 + 0.4 * noise(nx * 8, ny * 4);
+              this.push(clamp(v, 0, 1));
+            }
+          },
+          function (c, r, cols, rows) {
+            var size = 3.5;
+            for (var y = 0; y < rows; y++) for (var x = 0; x < cols; x++) {
+              var row = Math.floor(y / (size * 1.5));
+              var isOddRow = row % 2;
+              var hx = (Math.floor(x / (size * 1.732)) + (isOddRow ? 0.5 : 0)) * size * 1.732;
+              var hy = row * size * 1.5;
+              var dx = x - hx, dy = y - hy;
+              var dist = Math.sqrt(dx * dx + dy * dy);
+              var v = clamp(1 - dist / size, 0, 1);
+              if (dist > size * 0.65 && dist < size * 0.8) v = Math.max(v, 0.55);
+              this.push(v);
+            }
+          },
+          function (c, r, cols, rows) {
+            var cx = cols / 2, cy = rows / 2;
+            var maxR = Math.min(cols, rows) * 0.45;
+            var nPoints = 60;
+            var points = [];
+            for (var i = 0; i < nPoints; i++) {
+              var theta = i * 137.5 * Math.PI / 180;
+              var rr = Math.sqrt(i) / Math.sqrt(nPoints) * maxR;
+              points.push({ x: cx + rr * Math.cos(theta), y: cy + rr * Math.sin(theta) });
+            }
+            for (var y = 0; y < rows; y++) for (var x = 0; x < cols; x++) {
+              var minD2 = 1e9;
+              for (var i = 0; i < points.length; i++) {
+                var dx = x - points[i].x, dy = y - points[i].y;
+                var d2 = dx * dx + dy * dy;
+                if (d2 < minD2) minD2 = d2;
+              }
+              var dist = Math.sqrt(minD2);
+              this.push(clamp(1 - dist / 1.8, 0, 1));
+            }
+          },
+          function (c, r, cols, rows) {
+            var noise = makeNoise(r);
+            var cx = cols * (0.25 + r() * 0.5);
+            var cy = rows * (0.25 + r() * 0.5);
+            for (var y = 0; y < rows; y++) for (var x = 0; x < cols; x++) {
+              var dx = x - cx, dy = y - cy;
+              var dist = Math.sqrt(dx * dx + dy * dy);
+              var n = noise(x * 0.1, y * 0.1) * 6;
+              var d = dist + n;
+              var contour = Math.abs(Math.sin(d * 0.45));
+              var v = contour < 0.15 ? 0.7 : 0;
+              v *= 0.8 + 0.2 * noise(x * 0.3, y * 0.3);
+              v *= 1 - Math.min(1, dist / (Math.max(cols, rows) * 0.55));
+              this.push(clamp(v, 0, 1));
+            }
+          }
         ];
 
-        var CELLS = [16, 12, 14, 14, 20, 10];
+        var CELLS = [16, 12, 14, 14, 20, 10, 14, 12, 10, 18, 8, 12];
         var WEIGHTS = [55, 18, 12, 9, 6];
 
         function pickClass(v) {
           var r2 = v * 100;
           var acc = 0;
-          for (var i = 0; i < WEIGHTS.length; i++) {
-            acc += WEIGHTS[i];
-            if (r2 < acc) return i;
-          }
+          for (var i = 0; i < WEIGHTS.length; i++) { acc += WEIGHTS[i]; if (r2 < acc) return i; }
           return 0;
         }
 
-        /* ── main generator ── */
-        function generate() {
-          var old = document.getElementById("commit-grid");
-          if (old) old.remove();
+        var currentArt = -1;
 
-          var seed = Math.floor(Math.random() * 2147483647);
-          var rand = mulberry32(seed);
-          var pi = Math.floor(rand() * patterns.length);
-          var cell = CELLS[pi];
-
+        function renderSVG(values, cols, rows, cell) {
           var w = window.innerWidth, h = window.innerHeight;
-          var cols = Math.ceil(w / cell) + 1;
-          var rows = Math.ceil(h / cell) + 1;
-          var values = [];
-          patterns[pi].call(values, null, rand, cols, rows);
-
           var parts = [];
           parts.push('<svg xmlns="http://www.w3.org/2000/svg" width="', w, '" height="', h,
             '" viewBox="0 0 ', w, ' ', h,
             '" shape-rendering="crispEdges" preserveAspectRatio="xMidYMid slice">');
-
           for (var y = 0; y < rows; y++) {
             for (var x = 0; x < cols; x++) {
               var cls = pickClass(values[y * cols + x]);
@@ -240,27 +300,128 @@ import "../styles/global.css";
                 '" width="', cell, '" height="', cell, '"/>');
             }
           }
+          parts.push('</svg>');
+          return parts.join('');
+        }
 
-          parts.push("</svg>");
+        function generate(patternIndex) {
+          var old = document.getElementById("commit-grid");
+          if (old) old.remove();
+
+          var seed = Math.floor(Math.random() * 2147483647);
+          var rand = mulberry32(seed);
+          var pi = (patternIndex === undefined || patternIndex < 0)
+            ? Math.floor(rand() * patterns.length) : patternIndex;
+          if (pi >= patterns.length) pi = 0;
+          currentArt = pi;
+
+          var cell = CELLS[pi];
+          var w = window.innerWidth, h = window.innerHeight;
+          var cols = Math.ceil(w / cell) + 1;
+          var rows = Math.ceil(h / cell) + 1;
+          var values = [];
+          patterns[pi].call(values, null, rand, cols, rows);
+
           var wrap = document.createElement("div");
-          wrap.innerHTML = parts.join("");
+          wrap.innerHTML = renderSVG(values, cols, rows, cell);
           var svg = wrap.firstChild;
           svg.id = "commit-grid";
           document.body.appendChild(svg);
+          updateArtPickerActive();
+        }
+
+        function generatePreview(patternIndex, size) {
+          size = size || 8;
+          var seed = patternIndex * 2654435761 + 42;
+          var rand = mulberry32(seed);
+          var cell = Math.max(6, Math.floor(72 / size));
+          var values = [];
+          patterns[patternIndex].call(values, null, rand, size, size);
+          return renderSVG(values, size, size, cell);
+        }
+
+        function updateArtPickerActive() {
+          var opts = document.querySelectorAll(".art-option");
+          for (var i = 0; i < opts.length; i++) {
+            var idx = parseInt(opts[i].getAttribute("data-art"));
+            if (idx === currentArt) opts[i].classList.add("active");
+            else opts[i].classList.remove("active");
+          }
+        }
+
+        function buildArtPicker() {
+          var panel = document.getElementById("art-picker-panel");
+          if (!panel) return;
+          var html = '<button class="art-option art-random" data-art="-1"><div class="art-preview">⤮</div><span class="art-name">random</span></button>';
+          for (var i = 0; i < ARTS.length; i++) {
+            html += '<button class="art-option" data-art="' + i + '">';
+            html += '<div class="art-preview" data-art="' + i + '"></div>';
+            html += '<span class="art-name">' + ARTS[i].name + '</span>';
+            html += '</button>';
+          }
+          panel.innerHTML = html;
+          var previews = panel.querySelectorAll('.art-preview[data-art]');
+          for (var j = 0; j < previews.length; j++) {
+            var idx = parseInt(previews[j].getAttribute("data-art"));
+            previews[j].innerHTML = generatePreview(idx, 8);
+          }
         }
 
         var resizeTimer = null;
         function schedule() {
           if (resizeTimer) clearTimeout(resizeTimer);
-          resizeTimer = setTimeout(generate, 200);
+          resizeTimer = setTimeout(function () { generate(currentArt); }, 200);
         }
 
+        var savedArt = null;
+        try {
+          var raw = localStorage.getItem("rr-art");
+          if (raw !== null) savedArt = parseInt(raw);
+          if (isNaN(savedArt)) savedArt = -1;
+        } catch (e) { savedArt = -1; }
+
+        buildArtPicker();
+
         if (document.readyState === "loading") {
-          document.addEventListener("DOMContentLoaded", generate);
+          document.addEventListener("DOMContentLoaded", function () { generate(savedArt); });
         } else {
-          generate();
+          generate(savedArt);
         }
         window.addEventListener("resize", schedule);
+
+        window.addEventListener("DOMContentLoaded", function () {
+          var btn = document.getElementById("art-picker-btn");
+          var panel = document.getElementById("art-picker-panel");
+          if (!btn || !panel) return;
+
+          function open() {
+            panel.classList.add("open");
+            btn.setAttribute("aria-expanded", "true");
+          }
+          function close() {
+            panel.classList.remove("open");
+            btn.setAttribute("aria-expanded", "false");
+          }
+          function toggle() {
+            if (panel.classList.contains("open")) close();
+            else open();
+          }
+
+          btn.addEventListener("click", function (e) { e.stopPropagation(); toggle(); });
+          document.addEventListener("click", function (e) {
+            if (!panel.contains(e.target) && e.target !== btn) close();
+          });
+          document.addEventListener("keydown", function (e) { if (e.key === "Escape") close(); });
+
+          panel.addEventListener("click", function (e) {
+            var opt = e.target.closest(".art-option");
+            if (!opt) return;
+            var idx = parseInt(opt.getAttribute("data-art"));
+            try { localStorage.setItem("rr-art", String(idx)); } catch (e2) {}
+            generate(idx);
+            close();
+          });
+        });
       })();
     </script>
   </head>
@@ -271,6 +432,22 @@ import "../styles/global.css";
         <div class="links">
           <a href="/" class:list={[Astro.url.pathname === "/" ? "active" : ""]}>home</a>
           <a href="/explore" class:list={[Astro.url.pathname === "/explore" ? "active" : ""]}>explore</a>
+          <div class="art-picker">
+            <button id="art-picker-btn" class="art-picker-btn" type="button" aria-label="Change art" title="Change art" aria-expanded="false">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
+                <rect x="0" y="0" width="3" height="3" rx="0.5"/>
+                <rect x="5.5" y="0" width="3" height="3" rx="0.5"/>
+                <rect x="11" y="0" width="3" height="3" rx="0.5"/>
+                <rect x="0" y="5.5" width="3" height="3" rx="0.5"/>
+                <rect x="5.5" y="5.5" width="3" height="3" rx="0.5"/>
+                <rect x="11" y="5.5" width="3" height="3" rx="0.5"/>
+                <rect x="0" y="11" width="3" height="3" rx="0.5"/>
+                <rect x="5.5" y="11" width="3" height="3" rx="0.5"/>
+                <rect x="11" y="11" width="3" height="3" rx="0.5"/>
+              </svg>
+            </button>
+            <div class="art-picker-panel" id="art-picker-panel" role="menu"></div>
+          </div>
           <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle theme" title="Toggle theme">
             <span class="theme-icon" aria-hidden="true">☀</span>
           </button>
