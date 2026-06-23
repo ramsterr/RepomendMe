@@ -42,8 +42,9 @@ async def _embed_one(
     repo_id: int,
     owner: str,
     name: str,
+    description: str | None = None,
 ) -> bool:
-    """Fetch README + embed + persist. Returns True on success."""
+    """Fetch README + embed README + embed description + persist. Returns True on success."""
     try:
         readme = await fetch_readme(client, owner, name)
     except Exception as exc:
@@ -58,6 +59,17 @@ async def _embed_one(
         logger.warning("embedding failed for %s/%s: %s", owner, name, exc)
         return False
     await data.set_embedding(session, repo_id=repo_id, embedding=embedding)
+
+    if description and description.strip():
+        try:
+            desc_emb = await embed_text(description)
+            await data.set_description_embedding(
+                session, repo_id=repo_id, description_embedding=desc_emb
+            )
+        except Exception as exc:
+            logger.warning(
+                "description embedding failed for %s/%s: %s", owner, name, exc
+            )
     return True
 
 
@@ -95,6 +107,7 @@ async def embed_top(
                 async with sem:
                     ok = await _embed_one(
                         client, session, repo.id, repo.owner, repo.name,
+                        description=repo.description,
                     )
                     await asyncio.sleep(0.1)
                     return ok

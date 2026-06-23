@@ -32,35 +32,40 @@ from reporelay_mvp.models import Features, Repo
 logger = logging.getLogger(__name__)
 
 WEIGHTS: dict[str, float] = {
-    "language_match":    0.15,
-    "topic_overlap":     0.35,
-    "cosine_sim":        0.00,
-    "dep_overlap":       0.15,
-    "popularity_sim":    0.15,
-    "trending_boost":    0.10,
-    "quality_signal":    0.05,
-    "language_diversity": 0.05,
+    "language_match":          0.08,
+    "topic_overlap":           0.18,
+    "cosine_sim":              0.15,
+    "description_sim":         0.05,
+    "description_cosine_sim":  0.15,
+    "dep_overlap":             0.12,
+    "popularity_sim":          0.10,
+    "trending_boost":          0.07,
+    "quality_signal":          0.05,
+    "language_diversity":      0.05,
 }
 
 TAG_WEIGHTS: dict[str, float] = {
-    "language_match":    0.05,
-    "topic_overlap":     0.35,
-    "cosine_sim":        0.00,
-    "filter_cosine_sim": 0.25,
-    "dep_overlap":       0.08,
-    "popularity_sim":    0.12,
-    "trending_boost":    0.05,
-    "quality_signal":    0.05,
-    "language_diversity": 0.05,
+    "language_match":          0.05,
+    "topic_overlap":           0.15,
+    "cosine_sim":              0.10,
+    "filter_cosine_sim":       0.25,
+    "description_sim":         0.05,
+    "description_cosine_sim":  0.10,
+    "dep_overlap":             0.08,
+    "popularity_sim":          0.07,
+    "trending_boost":          0.05,
+    "quality_signal":          0.05,
+    "language_diversity":      0.05,
 }
 
 
 def _embedding_weights(weights: dict[str, float], has_embedding: bool) -> dict[str, float]:
-    if not has_embedding:
+    if has_embedding:
         return weights
+    # No embeddings — redistribute to topic_overlap
     w = dict(weights)
-    w["cosine_sim"] = 0.25
-    w["topic_overlap"] = max(0.05, w.get("topic_overlap", 0.35) - 0.25)
+    moved = w.pop("cosine_sim", 0.0) + w.pop("description_cosine_sim", 0.0)
+    w["topic_overlap"] = w.get("topic_overlap", 0.18) + moved
     return w
 
 
@@ -125,6 +130,21 @@ async def score_many(
         for cand, _ in candidates:
             fc_by_id[cand.id] = _tag_match(tags, cand.topics)
 
+    # Description embeddings — compute cosine for source's description vs candidates
+    desc_cosine_by_id: dict[int, float] = {}
+    source_has_desc_emb = (
+        source.description_embedding is not None
+        and any(v != 0.0 for v in source.description_embedding)
+    )
+    if source_has_desc_emb:
+        candidate_ids = [c.id for c, _ in candidates]
+        desc_embs = await data.get_description_embeddings_batch(session, candidate_ids)
+        if desc_embs:
+            ids_ordered = [c.id for c, _ in candidates if c.id in desc_embs]
+            vecs_ordered = [desc_embs[cid] for cid in ids_ordered]
+            scores = cosine_batch_one_vs_many(source.description_embedding, vecs_ordered)
+            desc_cosine_by_id = dict(zip(ids_ordered, scores, strict=True))
+
     if filter_embedding:
         candidate_ids = [c.id for c, _ in candidates]
         if candidate_ids:
@@ -141,8 +161,10 @@ async def score_many(
     scored: list[tuple[Repo, float, Features]] = []
     for cand, cosine_sim in candidates:
         fc = fc_by_id.get(cand.id, 0.0)
+        desc_cos = desc_cosine_by_id.get(cand.id, 0.0)
         features = compute_features(
-            source, cand, cosine_sim=cosine_sim, filter_cosine_sim=fc
+            source, cand, cosine_sim=cosine_sim, filter_cosine_sim=fc,
+            description_cosine_sim=desc_cos,
         )
         s = score_repo(features, seed=seed, use_tags=use_tags, has_embedding=source_has_embedding)
         if rng is not None:

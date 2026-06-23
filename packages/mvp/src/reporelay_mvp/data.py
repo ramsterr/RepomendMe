@@ -341,6 +341,45 @@ async def get_embeddings_batch(session: AsyncSession, repo_ids: list[int]) -> di
     return result
 
 
+async def set_description_embedding(
+    session: AsyncSession,
+    *,
+    repo_id: int,
+    description_embedding: list[float],
+) -> None:
+    await session.execute(
+        text(
+            """
+            UPDATE mvp_repos
+            SET description_embedding = :emb
+            WHERE id = :id
+            """
+        ),
+        {"id": repo_id, "emb": description_embedding},
+    )
+
+
+async def get_description_embeddings_batch(
+    session: AsyncSession, repo_ids: list[int]
+) -> dict[int, list[float]]:
+    rows = await session.execute(
+        text(
+            """
+            SELECT id, description_embedding
+            FROM mvp_repos
+            WHERE id = ANY(:ids) AND description_embedding IS NOT NULL
+            """
+        ),
+        {"ids": repo_ids},
+    )
+    result: dict[int, list[float]] = {}
+    for row in rows:
+        parsed = _parse_embedding(row[1])
+        if parsed is not None:
+            result[int(row[0])] = parsed
+    return result
+
+
 async def count_repos(session: AsyncSession) -> int:
     rows = await session.execute(text("SELECT COUNT(*) FROM mvp_repos"))
     return int(rows.scalar() or 0)

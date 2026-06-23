@@ -20,6 +20,7 @@ All features are in [0, 1]. The scorer is a fixed weighted sum.
 from __future__ import annotations
 
 import math
+import re
 import threading
 
 from reporelay_mvp.models import Features, Repo
@@ -70,7 +71,7 @@ def _weighted_jaccard(a: list[str], b: list[str]) -> float:
     return inter_weight / union_weight
 
 
-def compute_features(source: Repo, candidate: Repo, *, cosine_sim: float, filter_cosine_sim: float = 0.0) -> Features:
+def compute_features(source: Repo, candidate: Repo, *, cosine_sim: float, filter_cosine_sim: float = 0.0, description_cosine_sim: float = 0.0) -> Features:
     src_lang = source.language
     cand_lang = candidate.language
     same_lang = 1.0 if (src_lang and cand_lang and src_lang == cand_lang) else 0.0
@@ -80,6 +81,8 @@ def compute_features(source: Repo, candidate: Repo, *, cosine_sim: float, filter
         language_match=same_lang,
         topic_overlap=_weighted_jaccard(source.topics, candidate.topics),
         cosine_sim=_clamp(cosine_sim),
+        description_sim=_description_sim(source.description, candidate.description),
+        description_cosine_sim=_clamp(description_cosine_sim),
         dep_overlap=_jaccard(source.dependencies, candidate.dependencies),
         popularity_sim=_popularity_sim(source.stars, candidate.stars),
         trending_boost=_clamp(candidate.trending_score),
@@ -126,6 +129,40 @@ def tag_match(user_tags: list[str], candidate_topics: list[str]) -> float:
     if not inter:
         return 0.0
     return len(inter) / len(ut)
+
+
+_DESC_STOPWORDS = frozenset({
+    "the", "a", "an", "and", "or", "for", "with", "this", "that",
+    "to", "of", "in", "is", "it", "on", "by", "as", "at", "be",
+    "from", "not", "are", "was", "your", "all", "can", "has",
+    "its", "use", "you", "but", "we", "no", "so", "if",
+    "one", "which", "also", "more", "just", "been", "will",
+    "framework", "library", "tool", "build", "building",
+})
+_DESC_TOKEN_RE = re.compile(r"[a-z0-9_]+")
+
+
+def _tokenize_desc(text: str) -> set[str]:
+    tokens: set[str] = set()
+    for m in _DESC_TOKEN_RE.finditer(text.lower()):
+        t = m.group()
+        if len(t) > 1 and t not in _DESC_STOPWORDS and not t.isdigit():
+            tokens.add(t)
+    return tokens
+
+
+def _description_sim(source_desc: str | None, candidate_desc: str | None) -> float:
+    if not source_desc or not candidate_desc:
+        return 0.0
+    src = _tokenize_desc(source_desc)
+    cand = _tokenize_desc(candidate_desc)
+    if not src or not cand:
+        return 0.0
+    inter = src & cand
+    if not inter:
+        return 0.0
+    # Jaccard: |intersection| / |union|
+    return len(inter) / len(src | cand)
 
 
 def _quality_signal(repo: Repo) -> float:

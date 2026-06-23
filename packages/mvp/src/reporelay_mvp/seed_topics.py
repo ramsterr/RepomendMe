@@ -60,38 +60,42 @@ async def seed_topics(
     async with _auth_client(settings.github_token) as client:
         for topic in topics:
             topic_upserted = 0
-            try:
-                for page in range(1, pages + 1):
-                    payload = await search_repositories(
-                        client,
-                        topics=[topic],
-                        min_stars=min_stars,
-                        sort="stars",
-                        per_page=100,
-                        page=page,
+            tries = 0
+            while tries < 3:
+                tries += 1
+                try:
+                    for page in range(1, pages + 1):
+                        payload = await search_repositories(
+                            client,
+                            topics=[topic],
+                            min_stars=min_stars,
+                            sort="stars",
+                            per_page=100,
+                            page=page,
+                        )
+                        items: list[dict[str, Any]] = payload.get("items", [])
+                        if not items:
+                            break
+
+                        session = await data.get_session()
+                        try:
+                            written = await data.bulk_upsert_from_search(session, items)
+                            await session.commit()
+                            topic_upserted += written
+                        finally:
+                            await session.close()
+
+                        if len(items) < 100:
+                            break  # no more results
+                    break  # success — exit retry loop
+                except Exception as exc:
+                    logger.warning(
+                        "topic %r attempt %d/3 failed: %s", topic, tries, exc
                     )
-                    items: list[dict[str, Any]] = payload.get("items", [])
-                    if not items:
-                        break
-
-                    session = await data.get_session()
-                    try:
-                        written = await data.bulk_upsert_from_search(session, items)
-                        await session.commit()
-                        topic_upserted += written
-                    finally:
-                        await session.close()
-
-                    if len(items) < 100:
-                        break  # no more results
-
-                logger.info(
-                    "topic %r: %d upserted (target=%d)", topic, topic_upserted, per_topic
-                )
-                total_upserted += topic_upserted
-            except Exception as exc:
-                logger.warning("topic %r failed: %s", topic, exc)
-                continue
+                    if tries < 3:
+                        await asyncio.sleep(12)
+                    else:
+                        logger.warning("topic %r gave up after 3 attempts", topic)
 
             await asyncio.sleep(delay_s)
 
