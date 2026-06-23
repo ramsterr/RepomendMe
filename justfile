@@ -44,7 +44,7 @@ new-migration MESSAGE:
 
 seed-and-embed TOPICS="" PER_TOPIC="130" LIMIT="7000":
     @echo "=== REPORE LAY SEED-AND-EMBED ==="
-    @echo "topics:  {{if TOPICS == ""}}all 54 defaults{{else}}{{TOPICS}}{{endif}}"
+    @if [ -z "{{TOPICS}}" ]; then echo "topics: all 54 defaults"; else echo "topics: {{TOPICS}}"; fi
     @echo "per-topic: {{PER_TOPIC}}   embed-limit: {{LIMIT}}"
     @echo ""
     @echo "--- seeding ---"
