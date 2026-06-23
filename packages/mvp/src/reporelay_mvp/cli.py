@@ -26,6 +26,7 @@ from rich.logging import RichHandler
 from reporelay_mvp import recommend as recommend_func
 from reporelay_mvp import recommend_random as explore_func
 from reporelay_mvp import data
+from reporelay_mvp.seed_topics import seed_topics as seed_topics_fn, DEFAULT_TOPICS
 from reporelay_mvp.embed_pass import embed_top
 from reporelay_mvp.github import save_repo
 from reporelay_mvp.seed import DEFAULT_LANGUAGES, seed_corpus
@@ -175,6 +176,36 @@ def seed(
     console.print(f"[bold green]done — {result['grand_total']} repos indexed[/bold green]")
     for lang, count in result["totals"].items():
         console.print(f"  {lang}: {count}")
+
+
+@app.command()
+def seed_topics(
+    topics: str = typer.Option(
+        "",
+        help="Comma-separated topics (uses built-in default list if empty)",
+    ),
+    per_topic: int = typer.Option(200, help="repos per topic (max ~200 per search page × 2 pages)"),
+    min_stars: int = typer.Option(20, help="minimum star count for search"),
+) -> None:
+    """Seed repos by topic — broad software categories, not language-only."""
+    topic_list = None
+    if topics.strip():
+        topic_list = [t.strip().lower() for t in topics.split(",") if t.strip()]
+    else:
+        topic_list = DEFAULT_TOPICS
+
+    console.print(f"[bold]seed-topics[/bold] — {len(topic_list)} topics, {per_topic}/topic, stars ≥ {min_stars}")
+    console.print("  " + ", ".join(topic_list[:10]) + (" …" if len(topic_list) > 10 else ""))
+    console.print()
+
+    total = asyncio.run(
+        seed_topics_fn(
+            topics=topic_list,
+            per_topic=per_topic,
+            min_stars=min_stars,
+        )
+    )
+    console.print(f"[bold green]done — {total} repos indexed across {len(topic_list)} topics[/bold green]")
 
 
 @app.command()
