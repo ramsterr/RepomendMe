@@ -18,12 +18,14 @@ from reporelay_mvp.models import Repo
 
 EXPECTED_COLUMNS = (
     "id, owner, name, full_name, description, language, topics, stars, "
-    "dependencies, trending_score"
+    "dependencies, trending_score, embedding, description_embedding"
 )
 
 
 def _row_to_repo(row: Any) -> Repo:
     data = dict(row._mapping)
+    embedding_raw = data.get("embedding")
+    desc_embedding_raw = data.get("description_embedding")
     return Repo(
         id=data["id"],
         owner=data["owner"],
@@ -35,6 +37,8 @@ def _row_to_repo(row: Any) -> Repo:
         stars=int(data.get("stars") or 0),
         dependencies=list(data.get("dependencies") or []),
         trending_score=float(data.get("trending_score") or 0.0),
+        embedding=_parse_embedding(embedding_raw) if embedding_raw is not None else None,
+        description_embedding=_parse_embedding(desc_embedding_raw) if desc_embedding_raw is not None else None,
     )
 
 

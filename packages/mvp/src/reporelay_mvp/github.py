@@ -189,6 +189,7 @@ def _search_item_to_repo(item: dict[str, Any]) -> Repo:
         stars=int(item.get("stargazers_count") or 0),
         dependencies=[],
         embedding=None,
+        description_embedding=None,
     )
 
 

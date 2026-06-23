@@ -2,6 +2,7 @@ import math
 
 from reporelay_mvp.features import (
     _clamp,
+    _description_sim,
     _jaccard,
     _popularity_sim,
     _quality_signal,
@@ -94,3 +95,33 @@ def test_quality_signal_well_documented():
         dependencies=["a", "b", "c", "d", "e", "f"],
     )
     assert math.isclose(_quality_signal(r), 1.0)
+
+
+def test_description_sim_high_overlap():
+    score = _description_sim(
+        "async Python web framework for building APIs",
+        "Python micro web framework for building applications",
+    )
+    assert score > 0.2
+
+
+def test_description_sim_no_overlap():
+    score = _description_sim(
+        "distributed SQL query engine",
+        "Python web framework for building APIs",
+    )
+    assert score == 0.0
+
+
+def test_description_sim_empty():
+    assert _description_sim(None, "something") == 0.0
+    assert _description_sim("", "something") == 0.0
+
+
+def test_description_sim_stopwords_ignored():
+    score = _description_sim(
+        "a tool for building web apps",
+        "a library for building web apps",
+    )
+    expected = _description_sim("tool building web apps", "library building web apps")
+    assert score == expected
