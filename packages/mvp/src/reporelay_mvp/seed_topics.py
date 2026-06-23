@@ -97,6 +97,11 @@ async def seed_topics(
                     else:
                         logger.warning("topic %r gave up after 3 attempts", topic)
 
+            logger.info(
+                "topic %r: %d upserted (target=%d)", topic, topic_upserted, per_topic
+            )
+            total_upserted += topic_upserted
+
             await asyncio.sleep(delay_s)
 
     logger.info("seed-topics complete: %d repos across %d topics", total_upserted, len(topics))
