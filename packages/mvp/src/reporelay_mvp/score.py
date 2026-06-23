@@ -61,15 +61,25 @@ TAG_WEIGHTS: dict[str, float] = {
 }
 
 
-def _embedding_weights(weights: dict[str, float], has_embedding: bool) -> dict[str, float]:
-    if has_embedding:
-        return weights
-    # No embeddings — split freed weight between topic_overlap and description_sim
+def _embedding_weights(
+    weights: dict[str, float],
+    has_readme_emb: bool,
+    has_desc_emb: bool,
+) -> dict[str, float]:
     w = dict(weights)
-    moved = w.pop("cosine_sim", 0.0) + w.pop("description_cosine_sim", 0.0)
-    half = moved / 2  # 0.15 each from 0.30 total
-    w["topic_overlap"] = w.get("topic_overlap", 0.18) + half
-    w["description_sim"] = w.get("description_sim", 0.05) + half
+
+    if not has_readme_emb:
+        moved = w.pop("cosine_sim", 0.0)
+        if moved > 0:
+            half = moved / 2
+            w["topic_overlap"] = w.get("topic_overlap", 0.18) + half
+            w["description_sim"] = w.get("description_sim", 0.05) + half
+
+    if not has_desc_emb:
+        moved = w.pop("description_cosine_sim", 0.0)
+        if moved > 0:
+            w["description_sim"] = w.get("description_sim", 0.0) + moved
+
     return w
 
 
@@ -78,7 +88,7 @@ def _readme_weights(weights: dict[str, float], has_readme: bool) -> dict[str, fl
         return weights
     w = dict(weights)
     w["readme_keyword_sim"] = 0.15
-    w["topic_overlap"] = max(0.05, w.get("topic_overlap", 0.18) - 0.15)
+    w["topic_overlap"] = w.get("topic_overlap", 0.18) - 0.15
     return w
 
 
@@ -101,12 +111,13 @@ def _topicless_weights(weights: dict[str, float], has_topics: bool, has_readme: 
 def _get_weights(
     seed: int | None, *,
     use_tags: bool = False,
-    has_embedding: bool = False,
+    has_readme_emb: bool = False,
+    has_desc_emb: bool = False,
     has_readme_keywords: bool = False,
     has_topics: bool = False,
 ) -> dict[str, float]:
     base = dict(TAG_WEIGHTS if use_tags else WEIGHTS)
-    base = _embedding_weights(base, has_embedding)
+    base = _embedding_weights(base, has_readme_emb, has_desc_emb)
     base = _readme_weights(base, has_readme_keywords)
     base = _topicless_weights(base, has_topics, has_readme_keywords)
     if seed is None:
@@ -122,10 +133,12 @@ def _get_weights(
 
 def score_repo(
     features: Features, *, seed: int | None = None, use_tags: bool = False,
-    has_embedding: bool = False, has_readme_keywords: bool = False,
-    has_topics: bool = False,
+    has_readme_emb: bool = False, has_desc_emb: bool = False,
+    has_readme_keywords: bool = False, has_topics: bool = False,
 ) -> float:
-    weights = _get_weights(seed, use_tags=use_tags, has_embedding=has_embedding,
+    weights = _get_weights(seed, use_tags=use_tags,
+                           has_readme_emb=has_readme_emb,
+                           has_desc_emb=has_desc_emb,
                            has_readme_keywords=has_readme_keywords,
                            has_topics=has_topics)
     total: float = 0.0
@@ -161,12 +174,14 @@ async def score_many(
     use_tags = bool(tags)
     rng = random.Random(seed) if seed is not None else None
 
-    source_has_embedding = (
+    source_has_readme_emb = (
         source.embedding is not None
         and any(v != 0.0 for v in source.embedding)
     )
-    if source_has_embedding:
-        logger.info("source %s has real embedding — enabling cosine_sim weight", source.full_name)
+    source_has_desc_emb = (
+        source.description_embedding is not None
+        and any(v != 0.0 for v in source.description_embedding)
+    )
 
     embeddings: dict[int, list[float]] = {}
     fc_by_id: dict[int, float] = {}
@@ -178,10 +193,6 @@ async def score_many(
 
     # Description embeddings — compute cosine for source's description vs candidates
     desc_cosine_by_id: dict[int, float] = {}
-    source_has_desc_emb = (
-        source.description_embedding is not None
-        and any(v != 0.0 for v in source.description_embedding)
-    )
     if source_has_desc_emb:
         candidate_ids = [c.id for c, _ in candidates]
         desc_embs = await data.get_description_embeddings_batch(session, candidate_ids)
@@ -224,7 +235,8 @@ async def score_many(
             description_cosine_sim=desc_cos, readme_keyword_sim=rks,
         )
         s = score_repo(features, seed=seed, use_tags=use_tags,
-                        has_embedding=source_has_embedding,
+                        has_readme_emb=source_has_readme_emb,
+                        has_desc_emb=source_has_desc_emb,
                         has_readme_keywords=has_readme,
                         has_topics=has_topics)
         if rng is not None:

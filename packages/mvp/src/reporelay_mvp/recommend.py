@@ -257,8 +257,9 @@ async def recommend(
         # If the source has no real embedding, borrow one from a
         # topic-similar repo in the DB. This gives instant pgvector-
         # quality results for ANY pasted URL.
-        source_has_embedding = source.embedding is not None and any(v != 0.0 for v in source.embedding)
-        if not source_has_embedding:
+        source_has_readme_emb = source.embedding is not None and any(v != 0.0 for v in source.embedding)
+
+        if not source_has_readme_emb:
             proxy_emb = await _find_proxy_embedding(session, source)
             if proxy_emb:
                 source = source.model_copy(update={"embedding": proxy_emb})
@@ -267,9 +268,9 @@ async def recommend(
                 logger.info("no proxy embedding found for %s — topic/language matching only", full_name)
 
         # Start parallel README fetch for cold repos — used as content signal
-        # when the source has no real embedding.
+        # when the source has no real README embedding.
         readme_task = None
-        if not source_has_embedding:
+        if not source_has_readme_emb:
             settings = get_mvp_settings()
 
             async def _fetch_and_tokenize():
