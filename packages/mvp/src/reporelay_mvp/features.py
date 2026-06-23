@@ -71,7 +71,7 @@ def _weighted_jaccard(a: list[str], b: list[str]) -> float:
     return inter_weight / union_weight
 
 
-def compute_features(source: Repo, candidate: Repo, *, cosine_sim: float, filter_cosine_sim: float = 0.0, description_cosine_sim: float = 0.0) -> Features:
+def compute_features(source: Repo, candidate: Repo, *, cosine_sim: float, filter_cosine_sim: float = 0.0, description_cosine_sim: float = 0.0, readme_keyword_sim: float = 0.0) -> Features:
     src_lang = source.language
     cand_lang = candidate.language
     same_lang = 1.0 if (src_lang and cand_lang and src_lang == cand_lang) else 0.0
@@ -83,6 +83,7 @@ def compute_features(source: Repo, candidate: Repo, *, cosine_sim: float, filter
         cosine_sim=_clamp(cosine_sim),
         description_sim=_description_sim(source.description, candidate.description),
         description_cosine_sim=_clamp(description_cosine_sim),
+        readme_keyword_sim=_clamp(readme_keyword_sim),
         dep_overlap=_jaccard(source.dependencies, candidate.dependencies),
         popularity_sim=_popularity_sim(source.stars, candidate.stars),
         trending_boost=_clamp(candidate.trending_score),
@@ -178,3 +179,26 @@ def _quality_signal(repo: Repo) -> float:
     if repo.language:
         s += 0.1
     return min(1.0, s)
+
+
+_readme_cache: dict[str, set[str]] = {}
+
+
+def _tokenize_readme(full_name: str, text: str) -> set[str]:
+    if full_name in _readme_cache:
+        return _readme_cache[full_name]
+    tokens = _tokenize_desc(text[:5000])
+    _readme_cache[full_name] = tokens
+    return tokens
+
+
+def readme_keyword_sim(source_tokens: set[str], candidate_desc: str | None) -> float:
+    if not source_tokens:
+        return 0.0
+    cand = _tokenize_desc(candidate_desc or "")
+    if not cand:
+        return 0.0
+    inter = source_tokens & cand
+    if not inter:
+        return 0.0
+    return len(inter) / len(source_tokens)

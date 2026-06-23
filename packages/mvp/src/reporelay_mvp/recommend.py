@@ -145,7 +145,9 @@ def _build_scored_repo(
     cosine_sim: float,
     features: Features | None = None,
 ) -> ScoredRepo:
-    feats = features if features is not None else compute_features(source, repo, cosine_sim=cosine_sim)
+    feats = features if features is not None else compute_features(
+        source, repo, cosine_sim=cosine_sim, description_cosine_sim=0.0, readme_keyword_sim=0.0,
+    )
     source_topic_set = set(source.topics)
     source_lang = source.language
 
@@ -264,7 +266,34 @@ async def recommend(
             else:
                 logger.info("no proxy embedding found for %s — topic/language matching only", full_name)
 
+        # Start parallel README fetch for cold repos — used as content signal
+        # when the source has no real embedding.
+        readme_task = None
+        if not source_has_embedding:
+            settings = get_mvp_settings()
+
+            async def _fetch_and_tokenize():
+                try:
+                    from reporelay_mvp.features import _tokenize_readme
+
+                    async with _auth_client(settings.github_token) as client:
+                        readme_text = await fetch_readme(client, owner, name)
+                        return _tokenize_readme(full_name, readme_text)
+                except Exception:
+                    return None
+
+            readme_task = asyncio.create_task(_fetch_and_tokenize())
+
         candidates = await _expand_pool(session, source, seed=seed, tags=tags)
+
+        source_readme_tokens = None
+        if readme_task:
+            source_readme_tokens = await readme_task
+            if source_readme_tokens:
+                logger.info(
+                    "fetched README for %s — %d tokens for keyword matching",
+                    full_name, len(source_readme_tokens),
+                )
 
         filter_emb = None
         if tags:
@@ -272,7 +301,10 @@ async def recommend(
             logger.info("embedding filter text: %r", filter_text)
             filter_emb = await embed_text(filter_text)
 
-        scored = await score_many(source, candidates, session=session, seed=seed, tags=tags, filter_embedding=filter_emb)
+        scored = await score_many(
+            source, candidates, session=session, seed=seed, tags=tags,
+            filter_embedding=filter_emb, source_readme_tokens=source_readme_tokens,
+        )
         final = rerank(source, scored, limit=limit, seed=seed)
 
         cosine_lookup = _build_cosine_lookup(candidates)

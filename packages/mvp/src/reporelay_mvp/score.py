@@ -37,6 +37,7 @@ WEIGHTS: dict[str, float] = {
     "cosine_sim":              0.15,
     "description_sim":         0.05,
     "description_cosine_sim":  0.15,
+    "readme_keyword_sim":      0.00,
     "dep_overlap":             0.12,
     "popularity_sim":          0.10,
     "trending_boost":          0.07,
@@ -48,9 +49,10 @@ TAG_WEIGHTS: dict[str, float] = {
     "language_match":          0.05,
     "topic_overlap":           0.15,
     "cosine_sim":              0.10,
-    "filter_cosine_sim":       0.25,
     "description_sim":         0.05,
     "description_cosine_sim":  0.10,
+    "readme_keyword_sim":      0.00,
+    "filter_cosine_sim":       0.25,
     "dep_overlap":             0.08,
     "popularity_sim":          0.07,
     "trending_boost":          0.05,
@@ -62,16 +64,29 @@ TAG_WEIGHTS: dict[str, float] = {
 def _embedding_weights(weights: dict[str, float], has_embedding: bool) -> dict[str, float]:
     if has_embedding:
         return weights
-    # No embeddings — redistribute to topic_overlap
+    # No embeddings — split freed weight between topic_overlap and description_sim
     w = dict(weights)
     moved = w.pop("cosine_sim", 0.0) + w.pop("description_cosine_sim", 0.0)
-    w["topic_overlap"] = w.get("topic_overlap", 0.18) + moved
+    half = moved / 2  # 0.15 each from 0.30 total
+    w["topic_overlap"] = w.get("topic_overlap", 0.18) + half
+    w["description_sim"] = w.get("description_sim", 0.05) + half
     return w
 
 
-def _get_weights(seed: int | None, *, use_tags: bool = False, has_embedding: bool = False) -> dict[str, float]:
+def _readme_weights(weights: dict[str, float], has_readme: bool) -> dict[str, float]:
+    if not has_readme:
+        return weights
+    w = dict(weights)
+    # Give readme_keyword_sim weight by borrowing from topic_overlap
+    w["readme_keyword_sim"] = 0.15
+    w["topic_overlap"] = max(0.05, w.get("topic_overlap", 0.18) - 0.15)
+    return w
+
+
+def _get_weights(seed: int | None, *, use_tags: bool = False, has_embedding: bool = False, has_readme_keywords: bool = False) -> dict[str, float]:
     base = dict(TAG_WEIGHTS if use_tags else WEIGHTS)
     base = _embedding_weights(base, has_embedding)
+    base = _readme_weights(base, has_readme_keywords)
     if seed is None:
         return base
     rng = random.Random(seed)
@@ -84,9 +99,11 @@ def _get_weights(seed: int | None, *, use_tags: bool = False, has_embedding: boo
 
 
 def score_repo(
-    features: Features, *, seed: int | None = None, use_tags: bool = False, has_embedding: bool = False
+    features: Features, *, seed: int | None = None, use_tags: bool = False,
+    has_embedding: bool = False, has_readme_keywords: bool = False,
 ) -> float:
-    weights = _get_weights(seed, use_tags=use_tags, has_embedding=has_embedding)
+    weights = _get_weights(seed, use_tags=use_tags, has_embedding=has_embedding,
+                           has_readme_keywords=has_readme_keywords)
     total: float = 0.0
     for name, weight in weights.items():
         total += getattr(features, name) * weight
@@ -101,6 +118,7 @@ async def score_many(
     seed: int | None = None,
     tags: list[str] | None = None,
     filter_embedding: list[float] | None = None,
+    source_readme_tokens: set[str] | None = None,
 ) -> list[tuple[Repo, float, Features]]:
     """
     Score all candidates against the source repo.
@@ -109,6 +127,10 @@ async def score_many(
     text), the batch fetch of candidate embeddings is done and
     filter_cosine_sim is computed per candidate. This gives semantic
     tag filtering — the tag text becomes a vector query.
+
+    When `source_readme_tokens` is provided, a readme_keyword_sim
+    feature is computed per candidate by Jaccard-matching the source's
+    README tokens against each candidate's description tokens.
 
     Returns (repo, score, features) tuples for downstream use.
     """
@@ -159,14 +181,26 @@ async def score_many(
             logger.info("no candidate embeddings for semantic tag filter — falling back to topic overlap")
 
     scored: list[tuple[Repo, float, Features]] = []
+    has_readme = source_readme_tokens is not None and len(source_readme_tokens) > 0
+    if has_readme:
+        from reporelay_mvp.features import readme_keyword_sim as _rks
+        rks_by_id: dict[int, float] = {}
+        for cand, _ in candidates:
+            rks_by_id[cand.id] = _rks(source_readme_tokens, cand.description)
+    else:
+        rks_by_id = {}
+
     for cand, cosine_sim in candidates:
         fc = fc_by_id.get(cand.id, 0.0)
         desc_cos = desc_cosine_by_id.get(cand.id, 0.0)
+        rks = rks_by_id.get(cand.id, 0.0) if has_readme else 0.0
         features = compute_features(
             source, cand, cosine_sim=cosine_sim, filter_cosine_sim=fc,
-            description_cosine_sim=desc_cos,
+            description_cosine_sim=desc_cos, readme_keyword_sim=rks,
         )
-        s = score_repo(features, seed=seed, use_tags=use_tags, has_embedding=source_has_embedding)
+        s = score_repo(features, seed=seed, use_tags=use_tags,
+                        has_embedding=source_has_embedding,
+                        has_readme_keywords=has_readme)
         if rng is not None:
             s += rng.uniform(-0.08, 0.08)
         scored.append((cand, s, features))
