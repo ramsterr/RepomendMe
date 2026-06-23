@@ -1,227 +1,79 @@
-# Seed Pipeline — Roadmap to Production
+# Indexing & Embedding
 
-## Goal
+How to fill the database with repos and compute their embeddings.
 
-Continuously discover, store, and embed GitHub repos so the recommender
-always has fresh data and never blocks on embeddings.
+## Quick start
 
-## Constraints (hard)
-
-| Resource | Limit | Notes |
-|---|---|---|
-| GitHub search | 30 req / min | per-user, not per-token |
-| GitHub REST | 5,000 req / hour (auth) | gates README fetches |
-| GitHub GraphQL | 5,000 pts / hour (auth) | 1 search ≈ 1pt, 1 README ≈ 1pt |
-| Render free | 512 MB RAM | one BGE-small model instance max |
-| Neon free | 0.5 GB storage | ~150k rows of mvp_repos w/ 384-dim vectors |
-
-## Architecture (target)
-
-```
-┌──────────────────────────────────────────────────────────────────┐
-│                        PRODUCER (search)                         │
-│  GitHub Search @ 30/min  ──►  mvp_repos.embedding = NULL         │
-│  (idempotent upsert, mark search_fetched_at)                     │
-└──────────────────────────────────────────────────────────────────┘
-                                  │
-                                  ▼
-┌──────────────────────────────────────────────────────────────────┐
-│                     CONSUMER (embed) — N workers                 │
-│  Claim rows: SELECT … FOR UPDATE SKIP LOCKED                     │
-│  Fetch READMEs (async batch, semaphore=10)                       │
-│  Batch-encode through ONE BGE-small (batch=32)                   │
-│  UPDATE mvp_repos SET embedding = … , embedded_at = NOW()        │
-└──────────────────────────────────────────────────────────────────┘
-                                  │
-                                  ▼
-┌──────────────────────────────────────────────────────────────────┐
-│                  RECOMMENDER (read-path, hot)                    │
-│  candidate has embedding?  → pgvector ANN (cosine sim)           │
-│  candidate has no embed?  → topic overlap + language + stars     │
-│  (always works — no cold-start gap)                              │
-└──────────────────────────────────────────────────────────────────┘
+```bash
+just seed-and-embed
 ```
 
-Key invariants:
+This seeds 54 broad software topics (130 repos each ≈ 7000 total), then embeds them all with both README and description vectors. Takes ~35 minutes.
 
-- **Search outruns embed by ~35×** — that's fine. Tag-fallback bridges the gap.
-- **Re-runnable end-to-end** — every step is idempotent (upsert by `full_name`,
-  skip-if-not-null for embeddings, `search_fetched_at` for staleness).
-- **Bounded** — never exceeds GitHub limits, never runs out of RAM.
-- **Resumable** — worker crash = next worker picks up unlocked rows.
+## Commands
 
----
-
-## Phase 1 — Cron-based (this week, ~3 hours)
-
-Get a working end-to-end loop. Boring, but unblocks everything else.
-
-- [ ] **GitHub Actions: `.github/workflows/seed.yml`** — cron every 3h, runs `just mvp seed --per-language 1000`, uses `DATABASE_URL` + `GITHUB_TOKEN` secrets
-- [ ] **GitHub Actions: `.github/workflows/embed.yml`** — cron every 1h (offset by 30min from seed), runs `just mvp embed --limit 500`
-- [ ] **Add structured logging** to `seed_corpus` and `embed_pass` — emit per-language counts, repos/sec, ETA, rate-limit remaining
-- [ ] **Add a `--dry-run` flag** to both commands — estimate work without calling the API
-- [ ] **README in seed.py** documenting the math: "1000/lang × 10 langs = 30 search calls = 1 minute at 30/min"
-- [ ] **Cadence rationale** — seed (3h) = matches new-repo discovery rate, embed (1h) = keeps the queue drained without burning the 5,000/hour REST budget
-
-**Acceptance:** DB has ≥ 5,000 repos and ≥ 1,000 embeddings after 24h of cron runs.
-
----
-
-## Phase 2 — Query diversity (next week, ~4 hours)
-
-Star-sorted search returns the same 1,000 popular repos forever. Need
-multiple query strategies to discover diverse + new repos.
-
-- [ ] **Multi-strategy seeder** — `seed.py` runs N passes, each with a different sort/filter:
-  - sort=stars, order=desc (popular)
-  - sort=updated, order=desc (active)
-  - sort=stars, order=asc, stars:>10 (rising)
-  - created:>YYYY-MM-DD (new)
-  - pushed:>YYYY-MM-DD (actively maintained)
-  - good-first-issues:>5 (welcoming)
-  - one pass per major topic: rust, ml, web, devops, etc. (10 topics × 1000 = 10k)
-- [ ] **Staleness check** — skip repos with `search_fetched_at > NOW() - INTERVAL '7 days'`
-- [ ] **Deduplication on insert** — unique index on `full_name` (already there), plus an "in-flight" check to avoid race conditions
-- [ ] **Throughput cap** — total API calls / run = 30 (search budget). 1 pass = 10 calls. So 3 passes per run max.
-
-**Acceptance:** Seed run discovers ≥ 100 new repos per execution (proves it's not just re-indexing the same popular ones).
-
----
-
-## Phase 3 — Concurrent embed workers (week 3, ~6 hours)
-
-The real bottleneck. One worker can do 80–100 embeds/min (gated by
-README fetch rate). Multiple workers = linear speedup to a point.
-
-- [ ] **Postgres-based work queue** — claim rows with `SELECT id FROM mvp_repos WHERE embedding IS NULL ORDER BY id LIMIT 100 FOR UPDATE SKIP LOCKED`
-- [ ] **Worker pool (N=2 on free Render, N=8 on paid)** — each runs the same loop, claims 100 rows, embeds, releases
-- [ ] **Semaphore on README fetches** — `asyncio.Semaphore(10)` so we don't blow past 5,000/hour auth limit
-- [ ] **Exponential backoff on 429** — read `X-RateLimit-Reset`, sleep until reset, then retry (currently we just log a warning and move on)
-- [ ] **Batched model.encode** — `model.encode(texts, batch_size=32, show_progress_bar=False)` — 3–4× faster than serial
-- [ ] **Idempotent claim release** — if the worker dies mid-batch, the row's `FOR UPDATE` lock is released automatically (Postgres behavior)
-
-**Acceptance:** Embed throughput ≥ 200 repos / hour on free Render. DB rows with `embedding IS NULL` count trends down over time.
-
----
-
-## Phase 4 — GraphQL migration (month 2, ~8 hours)
-
-Combine search + README fetch into fewer API calls. GraphQL points
-are cheaper per useful data unit.
-
-- [ ] **GraphQL client wrapper** — `gql.py` with token-bucket rate limiter
-- [ ] **Combined search+readme query** — `search(query:"language:python stars:>100", first:50) { nodes { ... readme: object(expression:"HEAD:README.md") { text } } }`
-- [ ] **Backward-compatible fallback** — if GraphQL errors, fall back to REST search + REST readme (current path)
-- [ ] **Cost model in code** — `points_used = response.rateLimit.used`; budget = 5,000/hour; auto-throttle
-- [ ] **Migration switch** — `GITHUB_USE_GRAPHQL=1` env var, default off until proven
-
-**Acceptance:** Embed throughput ≥ 1,000 repos / hour. Total API points/hour stays < 4,000 (leaves 1,000 buffer for the recommender's live searches).
-
----
-
-## Phase 5 — Real-time refresh (month 3, ~1 day)
-
-Stop polling. Get notified when a repo's README changes.
-
-- [ ] **Webhook receiver** — small FastAPI endpoint, registers GitHub webhook for `push` events on watched repos
-- [ ] **Re-embed trigger** — on push to `main` of a watched repo, enqueue re-embed
-- [ ] **Trending detection** — daily job that re-ranks repos by star velocity, bumps them up the embed queue
-- [ ] **Soft delete** — repos not seen in 30 days marked `stale=true`, excluded from results (still in DB for analysis)
-
-**Acceptance:** A repo with a major README update gets re-embedded within 5 minutes of the push.
-
----
-
-## Phase 6 — Self-tuning (quarter 2, ~1 week)
-
-Stop hand-tuning query strategies. Let the system learn.
-
-- [ ] **Track click-through rate per query strategy** — which seeds produce recommendations users actually click?
-- [ ] **Bandit-style query selection** — Thompson sampling over query strategies based on CTR
-- [ ] **Embedding model upgrade path** — abstract the encoder so swapping BGE-small → BGE-base → instructor is a one-line change
-- [ ] **A/B test new strategies** — run 10% of seed budget on a new strategy, measure CTR lift, auto-promote
-
-**Acceptance:** Recommendation CTR improves week-over-week with no manual intervention.
-
----
-
-## Cross-cutting (do alongside any phase)
-
-- [ ] **Metrics endpoint** — `/metrics` on the API exposing: queue depth, embed throughput, search rate-limit remaining, recommendation p50/p95 latency
-- [ ] **Health check that means something** — `/health` should verify DB connection, model loadable, GitHub API reachable (not just "process is up")
-- [ ] **Cost dashboard** — Grafana or just a daily log line: "used X of 5000 REST reqs, Y of 5000 GraphQL pts today"
-- [ ] **Backpressure** — if `mvp_repos.embedding IS NULL` count > 50k, slow down search (don't pile up work we can't process)
-- [ ] **Graceful shutdown** — SIGTERM handler in workers: finish current batch, release locks, exit
-- [ ] **Replay-safe migrations** — every schema change must be idempotent (use `IF NOT EXISTS`, no destructive ops without confirm)
-
----
-
-## What NOT to do (anti-patterns)
-
-- ❌ **Don't run multiple model instances in parallel.** One BGE-small on CPU is faster than two fighting for cache.
-- ❌ **Don't fetch READMEs serially.** Async + semaphore is the only way to approach the 5,000/hour limit.
-- ❌ **Don't re-embed on every seed run.** Use `embedded_at` + repo `pushed_at` to decide if re-embedding is needed.
-- ❌ **Don't sleep a fixed 2s between search calls.** Use `X-RateLimit-Remaining` to dynamically pace.
-- ❌ **Don't store embeddings as JSON.** pgvector's `vector(384)` type is 4× smaller and 100× faster for ANN.
-- ❌ **Don't trust search results for description quality.** Search truncates to 200 chars. README is the source of truth for embeddings.
-- ❌ **Don't add Redis yet.** Postgres `FOR UPDATE SKIP LOCKED` is a queue. Add Redis when you have 10+ workers and need pub/sub.
-
----
-
-## Immediate next step
-
-Implement **Phase 1** — the two GitHub Actions workflows. Boring, fast, gets data flowing.
-
----
-
-## Faster-than-cron data paths (optional add-ons)
-
-When 3h cadence isn't fresh enough, layer these on top of Phase 1:
-
-### Option A — GitHub webhooks (push-based, real-time)
-
-Get notified the moment a tracked repo changes. Replaces polling for re-embeds.
-
-- [ ] **Webhook receiver** — `apps/mvp_api/src/reporelay_mvp_api/webhooks.py`, FastAPI endpoint at `POST /webhooks/github`
-- [ ] **HMAC verification** — `X-Hub-Signature-256` against a `GITHUB_WEBHOOK_SECRET`
-- [ ] **Subscribe to `push` events on watched repos** — via `PUT /repos/{owner}/{repo}/hooks` (one-time setup, done by seeder for each high-value repo)
-- [ ] **On `push` to default branch** — enqueue re-embed (set `embedding = NULL`, let Phase 1's embed cron pick it up)
-- [ ] **Backpressure** — webhook receiver does NOT block; it just `UPDATE`s the row, embed cron does the work
-- [ ] **Rate limit on webhook setup** — only register webhooks for repos with > 1,000 stars (otherwise we hit the 100,000-repo webhook ceiling)
-
-**Acceptance:** A README update to a watched repo triggers a re-embed within 1h (next embed cron tick), not 3h+ (next seed run).
-
-**Tradeoffs:**
-- ✅ Real-time for the repos we care about
-- ❌ Webhook receiver must be a persistent service (Render web service, not GitHub Action)
-- ❌ GitHub may drop webhooks during incidents; need a fallback poll
-
-### Option B — Trending scrape (poll-based, real-time, no API budget)
-
-GitHub's `/trending` page is a public HTML page (not in the API rate limit budget). Scrape it to find repos gaining stars fast.
-
-- [ ] **Scraper** — `packages/mvp/src/reporelay_mvp/trending.py`, hits `https://github.com/trending/{language}?since=daily`
-- [ ] **Parse HTML** — `selectolax` or `beautifulsoup4`, extract: `owner/name`, `description`, `language`, `stars_today`, `total_stars`
-- [ ] **Store in `mvp_repos`** with `trending_score = stars_today` (new column, migration mvp_003)
-- [ ] **Boost in recommender** — when scoring candidates, add `0.1 * normalized(trending_score)` as a feature
-- [ ] **Schedule** — GitHub Action cron every 30 min (no API cost, so cheap to run often)
-- [ ] **Politeness** — `User-Agent: reporelay-bot (+contact)`, respect `robots.txt`, max 1 req / 10s
-
-**Acceptance:** A repo that gains 500 stars in a day shows up in recommendations within 1h, regardless of total stars.
-
-**Tradeoffs:**
-- ✅ Free (no API rate limit), real-time, catches "viral" repos the search API misses
-- ❌ Scraping is fragile (GitHub changes HTML without notice)
-- ❌ No historical data (each scrape is a snapshot)
-- ❌ Against GitHub ToS in spirit — be polite, cache aggressively, don't republish the data
-
-### When to use which
-
-| Use case | Path |
+| Command | What it does |
 |---|---|
-| Bulk discovery (popular + new repos) | Phase 1 cron (search) |
-| Re-embed when README changes | Option A (webhooks) |
-| Catch viral/trending repos fast | Option B (trending scrape) |
-| Bulk re-embed of stale repos | Phase 1 cron (embed) |
+| `just seed-and-embed` | Seed + embed in one shot (defaults: 54 topics, 130/topic, embed 7000) |
+| `just seed-and-embed "ai,rust,kubernetes" 200 3000` | Custom topics, 200/topic, embed 3000 |
+| `just seed-and-embed "" 50 500` | All default topics, 50/topic, embed 500 |
+| `just mvp seed-topics --per-topic 200` | Seed only (all 54 topics, 200 each) |
+| `just mvp seed-topics --topics "react,vue,nextjs" --per-topic 100` | Seed specific topics |
+| `just mvp embed --limit 5000` | Embed only — backfills missing README + description vectors |
+| `just mvp count` | How many repos are in the DB |
 
-**Recommended combo:** Phase 1 cron + Option B trending. Add Option A webhooks only when you need sub-hour re-embeds for specific repos.
+## What happens under the hood
+
+### 1. Seed (`just mvp seed-topics`)
+
+For each topic (e.g. "machine-learning", "kubernetes", "react"):
+- Calls GitHub search API: `topic:ml stars:>20 sort:stars`
+- Fetches up to 200 repos per topic (2 pages × 100 results)
+- Bulk-upserts into `mvp_repos` — metadata only (name, description, language, topics, stars)
+- No README fetched, no embeddings computed — that's the next step
+
+**Rate limit:** GitHub search API allows 30 requests/minute. The seeder paces itself at 2.2s between topics (~27 req/min) to stay under the budget. If a topic fails (429 / rate limit), it retries 3× with 12s backoff.
+
+### 2. Embed (`just mvp embed`)
+
+For repos with `embedded_at IS NULL` (any repo from seed that hasn't been embedded yet):
+- Downloads the README from GitHub (1 API call per repo)
+- Truncates to 8000 characters
+- Runs `BAAI/bge-small-en-v1.5` locally on your machine (~300MB RAM)
+- Writes 384-dim vector to `embedding` column
+- Also embeds the repo's description (if non-empty) → `description_embedding` column
+- Concurrency: 4 parallel fetches, 0.1s pause between launches
+
+**The model runs on YOUR machine, never on the deployed site.** Render runs in lightweight mode (`REPORE_LAY_LIGHTWEIGHT=1`), so the 512MB free tier is enough. The vectors are stored in Neon's pgvector column and read by the API — no model needed at query time.
+
+### 3. How the site uses them
+
+- **Repo with embeddings:** pgvector ANN search finds content-similar repos via README cosine similarity (0.15 weight) + description cosine similarity (0.15 weight). Both features have real vectors.
+- **Repo without embeddings:** system borrows a proxy vector from a topic-sibling repo. Falls back to structured features (topic overlap, language match, description token similarity, dependency overlap, popularity, trending).
+
+## Scaling up
+
+```bash
+# Light run: 500 repos across 10 topics
+just seed-and-embed "python,rust,go,react,security,ai,kubernetes,docker,database,cli" 50 500
+
+# Medium run: 3000 repos
+just seed-and-embed "" 60 3000
+
+# Heavy run: 15000 repos — increase per-topic count
+just seed-and-embed "" 300 15000
+```
+
+## Running periodically
+
+Re-run `just seed-and-embed` once a week. New repos from GitHub trending become available. Already-embedded repos are skipped (ON CONFLICT DO UPDATE). The embed pass only processes `embedded_at IS NULL` rows, so it's idempotent.
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| `Multiple head revisions` on migrate | Alembic chain broke. `just migrate` should work after the latest fix. |
+| Topic fails silently | Search API rate limit. The seeder retries 3×. If still failing, check `GITHUB_TOKEN` in `.env`. |
+| Embed hangs | Model download from HuggingFace is slow on first run. Be patient — it's 130MB. |
+| Embed returns zeros | `REPORE_LAY_LIGHTWEIGHT` is set. Remove it or set to `0` for local embedding. |
+| `sentence_transformers` import error | Run `uv sync` — the extra dependency isn't installed in lightweight mode. |

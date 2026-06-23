@@ -43,10 +43,17 @@ new-migration MESSAGE:
     uv run --package reporelay-mvp alembic -c packages/mvp/alembic.ini revision --autogenerate -m "{{MESSAGE}}"
 
 seed-and-embed TOPICS="" PER_TOPIC="130" LIMIT="7000":
-    @echo "=== seeding ({{PER_TOPIC}} per topic) ==="
+    @echo "=== REPORE LAY SEED-AND-EMBED ==="
+    @echo "topics:  {{if TOPICS == ""}}all 54 defaults{{else}}{{TOPICS}}{{endif}}"
+    @echo "per-topic: {{PER_TOPIC}}   embed-limit: {{LIMIT}}"
+    @echo ""
+    @echo "--- seeding ---"
     uv run --package reporelay-mvp reporelay-mvp seed-topics --per-topic {{PER_TOPIC}} --topics "{{TOPICS}}"
-    @echo "=== embedding up to {{LIMIT}} repos ==="
+    @echo ""
+    @echo "--- embedding ---"
     uv run --package reporelay-mvp reporelay-mvp embed --limit {{LIMIT}}
+    @echo ""
+    @echo "=== done ==="
 
 mvp *ARGS:
     uv run --package reporelay-mvp reporelay-mvp {{ARGS}}
